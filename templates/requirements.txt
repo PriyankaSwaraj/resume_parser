@@ -1,4 +1,0 @@
-Flask
-pypdf
-ollama
-gunicorn
