@@ -1,555 +1,725 @@
 import streamlit as st
-from openai import OpenAI
-import pdfplumber
-import docx
-import io
 import json
 import re
 import time
+from groq import Groq
+import PyPDF2
+import docx
+import io
+from collections import Counter
+import plotly.graph_objects as go
+import plotly.express as px
+import pandas as pd
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Resume Pattern Analyzer",
-    page_icon="🔍",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    page_title="ResumeIQ · AI Agent",
+    page_icon="🧠",
+    layout="centered",
+    initial_sidebar_state="collapsed",
 )
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
-}
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
-/* Background */
-.stApp {
-    background: #0f0f17;
-    color: #e8e8f0;
-}
-
-/* Sidebar */
-[data-testid="stSidebar"] {
-    background: #15151f;
-    border-right: 1px solid #2a2a3d;
-}
-
-/* Cards */
-.card {
-    background: #1a1a28;
-    border: 1px solid #2a2a3d;
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 1.2rem;
-}
-
-.card-accent {
-    border-left: 3px solid #7c6af7;
-}
+/* Main background */
+.main .block-container { padding-top: 2rem; max-width: 1200px; }
 
 /* Score ring */
-.score-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 1.2rem 0;
+.score-ring {
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2rem; font-weight: 700;
+    margin: 0 auto 1rem;
+    box-shadow: 0 0 30px rgba(99,102,241,0.4);
 }
 
-.score-value {
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 3.5rem;
-    font-weight: 700;
-    background: linear-gradient(135deg, #7c6af7, #a78bfa);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    line-height: 1;
+/* Metric cards */
+.metric-card {
+    background: linear-gradient(135deg, #1e2530 0%, #252d3a 100%);
+    border: 1px solid #2d3748;
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.3);
 }
 
-.score-label {
-    font-size: 0.8rem;
-    color: #888;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-}
-
-/* Section headers */
-.section-title {
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #a78bfa;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 0.8rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-/* Tags */
-.tag {
+/* Skill badges */
+.skill-badge {
     display: inline-block;
-    padding: 0.25rem 0.75rem;
-    border-radius: 999px;
-    font-size: 0.78rem;
+    background: #312e81;
+    color: #a5b4fc !important;
+    border: 1px solid #4f46e5;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.8rem;
     font-weight: 500;
-    margin: 0.2rem;
+    margin: 3px;
+    font-family: 'JetBrains Mono', monospace;
 }
-.tag-green  { background: #1a3329; color: #4ade80; border: 1px solid #2d5a42; }
-.tag-yellow { background: #2d2910; color: #facc15; border: 1px solid #4a400a; }
-.tag-red    { background: #2d1515; color: #f87171; border: 1px solid #5a2020; }
-.tag-purple { background: #221a3d; color: #a78bfa; border: 1px solid #3d2d70; }
-.tag-blue   { background: #0f1f3d; color: #60a5fa; border: 1px solid #1a3060; }
 
-/* Pattern items */
-.pattern-item {
-    padding: 0.75rem 1rem;
-    border-radius: 8px;
-    margin-bottom: 0.5rem;
-    font-size: 0.88rem;
-    line-height: 1.5;
+/* Pattern insight boxes */
+.pattern-box {
+    background: linear-gradient(135deg, #1a1f2e 0%, #1e2840 100%);
+    border-left: 3px solid #6366f1;
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.25rem;
+    margin: 0.75rem 0;
+    font-size: 0.9rem;
+    color: #cbd5e1;
 }
-.pattern-good    { background: #0f1f18; border-left: 3px solid #4ade80; }
-.pattern-warning { background: #1f1a0f; border-left: 3px solid #facc15; }
-.pattern-bad     { background: #1f0f0f; border-left: 3px solid #f87171; }
-.pattern-insight { background: #110f1f; border-left: 3px solid #a78bfa; }
+.pattern-box.warning { border-left-color: #f59e0b; }
+.pattern-box.success { border-left-color: #10b981; }
+.pattern-box.danger  { border-left-color: #ef4444; }
+
+/* Hero header */
+.hero {
+    background: linear-gradient(135deg, #0f1117 0%, #1a1f36 50%, #0f1117 100%);
+    border: 1px solid #2d3748;
+    border-radius: 16px;
+    padding: 2.5rem;
+    text-align: center;
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+}
+.hero::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(ellipse at center, rgba(99,102,241,0.08) 0%, transparent 60%);
+    pointer-events: none;
+}
+.hero h1 { font-size: 2.4rem; font-weight: 700; color: #f1f5f9; margin: 0 0 0.5rem; }
+.hero p  { color: #94a3b8; font-size: 1.05rem; margin: 0; }
+.hero .accent { color: #818cf8; }
+
+/* Section titles */
+.section-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #2d3748;
+    margin-bottom: 1rem;
+}
+
+/* Timeline items */
+.timeline-item {
+    border-left: 2px solid #4f46e5;
+    padding: 0.75rem 0 0.75rem 1.25rem;
+    margin-bottom: 0.75rem;
+    position: relative;
+}
+.timeline-item::before {
+    content: '';
+    width: 10px; height: 10px;
+    background: #6366f1;
+    border-radius: 50%;
+    position: absolute;
+    left: -6px; top: 1rem;
+}
+.timeline-date { font-size: 0.75rem; color: #6366f1; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.timeline-title { font-weight: 600; color: #f1f5f9; margin: 0.25rem 0 0.1rem; }
+.timeline-sub { color: #94a3b8; font-size: 0.85rem; }
+
+/* Tab styling */
+.stTabs [data-baseweb="tab-list"] { gap: 0.5rem; border-bottom: 1px solid #2d3748; }
+.stTabs [data-baseweb="tab"] {
+    background: transparent;
+    color: #64748b;
+    border-radius: 8px 8px 0 0;
+    font-weight: 500;
+    padding: 0.6rem 1.2rem;
+}
+.stTabs [aria-selected="true"] {
+    background: #1e2530 !important;
+    color: #818cf8 !important;
+    border-bottom: 2px solid #6366f1 !important;
+}
 
 /* Upload area */
-[data-testid="stFileUploader"] {
-    border: 2px dashed #2a2a3d !important;
-    border-radius: 12px !important;
-    background: #15151f !important;
-    transition: border-color 0.2s;
-}
+.uploadedFile { border-radius: 10px; }
 
-/* Buttons */
-.stButton > button {
-    background: linear-gradient(135deg, #7c6af7, #6d5ce6) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-family: 'Inter', sans-serif !important;
-    font-weight: 600 !important;
-    padding: 0.6rem 2rem !important;
-    font-size: 0.9rem !important;
-    transition: opacity 0.2s !important;
-}
-.stButton > button:hover { opacity: 0.88 !important; }
-
-/* Text input */
-.stTextInput > div > div > input,
-.stTextArea > div > div > textarea {
-    background: #15151f !important;
-    border: 1px solid #2a2a3d !important;
-    color: #e8e8f0 !important;
-    border-radius: 8px !important;
-    font-family: 'Inter', sans-serif !important;
-}
-
-/* Progress bar */
-.stProgress > div > div > div {
-    background: linear-gradient(90deg, #7c6af7, #a78bfa) !important;
-}
-
-/* Expander */
-.streamlit-expanderHeader {
-    background: #1a1a28 !important;
-    border: 1px solid #2a2a3d !important;
-    border-radius: 8px !important;
-    color: #e8e8f0 !important;
-}
-
-/* Divider */
-hr { border-color: #2a2a3d !important; }
-
-/* Info/warning boxes */
-.stAlert { border-radius: 8px !important; }
-
-h1, h2, h3 { font-family: 'Space Grotesk', sans-serif !important; }
+/* Hide streamlit branding and sidebar toggle */
+#MainMenu, footer, header { visibility: hidden; }
+section[data-testid="stSidebar"] { display: none; }
+button[data-testid="collapsedControl"] { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def extract_text_from_pdf(file_bytes: bytes) -> str:
-    text = ""
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text()
-            if t:
-                text += t + "\n"
-    return text.strip()
+def extract_text_from_pdf(file_bytes):
+    reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
 
-
-def extract_text_from_docx(file_bytes: bytes) -> str:
+def extract_text_from_docx(file_bytes):
     doc = docx.Document(io.BytesIO(file_bytes))
-    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+    return "\n".join(p.text for p in doc.paragraphs)
 
+def extract_text_from_txt(file_bytes):
+    return file_bytes.decode("utf-8", errors="ignore")
 
-def extract_text(uploaded_file) -> str:
+def extract_resume_text(uploaded_file):
+    raw = uploaded_file.read()
     name = uploaded_file.name.lower()
-    data = uploaded_file.read()
-    if name.endswith(".pdf"):
-        return extract_text_from_pdf(data)
-    elif name.endswith(".docx"):
-        return extract_text_from_docx(data)
-    else:  # plain text
-        return data.decode("utf-8", errors="ignore")
+    if name.endswith(".pdf"):  return extract_text_from_pdf(raw)
+    if name.endswith(".docx"): return extract_text_from_docx(raw)
+    return extract_text_from_txt(raw)
+
+def call_groq(client, messages, model, temperature=0.3, max_tokens=4096):
+    resp = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return resp.choices[0].message.content
+
+def clean_json(text):
+    """Strip markdown code fences and return clean JSON string."""
+    text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
+    return text
 
 
-ANALYSIS_PROMPT = """You are an elite career coach and talent expert with 15+ years of experience. Analyze the resume below and identify HIDDEN patterns — things most people miss — along with actionable feedback.
+# ── Prompts ───────────────────────────────────────────────────────────────────
 
-Return ONLY a valid JSON object (no markdown, no code fences) with this exact structure:
+PARSE_PROMPT = """You are an expert resume parser. Extract ALL information from the resume text below and return ONLY a valid JSON object — no prose, no markdown fences.
 
-{{
-  "overall_score": <integer 0-100>,
-  "candidate_level": "<Junior|Mid|Senior|Executive>",
-  "primary_domain": "<e.g. Software Engineering, Data Science, Marketing>",
-  "executive_summary": "<2-3 sentence honest assessment>",
-  
-  "hidden_patterns": [
-    {{
-      "type": "<good|warning|bad|insight>",
-      "title": "<short title>",
-      "detail": "<concrete observation with specifics from the resume>"
-    }}
+Schema:
+{
+  "name": "",
+  "email": "",
+  "phone": "",
+  "location": "",
+  "linkedin": "",
+  "github": "",
+  "portfolio": "",
+  "summary": "",
+  "total_experience_years": 0,
+  "experience": [
+    {"title": "", "company": "", "duration": "", "start_year": 0, "end_year": 0, "description": ""}
   ],
-  
-  "strengths": ["<specific strength>", ...],
-  "red_flags": ["<specific concern>", ...],
-  
-  "ats_analysis": {{
-    "score": <integer 0-100>,
-    "issues": ["<issue>", ...],
-    "keywords_missing": ["<keyword>", ...]
-  }},
-  
-  "career_trajectory": {{
-    "pattern": "<e.g. Steady climber|Job hopper|Career pivoter|Specialist deepener>",
-    "avg_tenure_months": <integer>,
-    "observation": "<what the career arc reveals>"
-  }},
-  
-  "writing_quality": {{
-    "score": <integer 0-100>,
-    "issues": ["<issue>", ...],
-    "strong_bullets": ["<example of good bullet>"],
-    "weak_bullets": ["<example of weak bullet>"]
-  }},
-  
-  "skill_gaps": ["<missing skill relevant to their domain>", ...],
-  
-  "top_recommendations": [
-    {{"priority": "high|medium", "action": "<specific, actionable recommendation>"}}
+  "education": [
+    {"degree": "", "institution": "", "year": 0, "gpa": "", "honors": ""}
   ],
-  
-  "verdict": "<one punchy sentence — what this resume signals to a hiring manager>"
-}}
+  "skills": {
+    "technical": [],
+    "soft": [],
+    "tools": [],
+    "languages": [],
+    "frameworks": [],
+    "certifications": []
+  },
+  "projects": [
+    {"name": "", "description": "", "tech_stack": [], "impact": ""}
+  ],
+  "achievements": [],
+  "publications": [],
+  "volunteer": []
+}
 
 Resume:
-{resume_text}
+"""
+
+FEEDBACK_PROMPT = """You are a senior career coach and recruiter with 15+ years experience. Analyze this parsed resume JSON and provide deeply actionable feedback.
+
+Return ONLY a valid JSON object:
+{
+  "overall_score": 0,
+  "grade": "",
+  "executive_summary": "",
+  "section_scores": {
+    "contact_info": {"score": 0, "max": 10, "comment": ""},
+    "summary": {"score": 0, "max": 10, "comment": ""},
+    "experience": {"score": 0, "max": 30, "comment": ""},
+    "skills": {"score": 0, "max": 20, "comment": ""},
+    "education": {"score": 0, "max": 15, "comment": ""},
+    "projects": {"score": 0, "max": 10, "comment": ""},
+    "achievements": {"score": 0, "max": 5, "comment": ""}
+  },
+  "strengths": [],
+  "critical_improvements": [
+    {"issue": "", "why_it_matters": "", "fix": "", "priority": "high|medium|low"}
+  ],
+  "ats_compatibility": {
+    "score": 0,
+    "issues": [],
+    "keywords_missing": []
+  },
+  "action_verbs_analysis": {
+    "found": [],
+    "weak_verbs": [],
+    "suggestions": []
+  },
+  "quantification_score": 0,
+  "readability_score": 0,
+  "career_level": ""
+}
+
+Resume JSON:
+"""
+
+PATTERN_PROMPT = """You are a behavioral data scientist specializing in career intelligence. Analyze this resume JSON and uncover hidden patterns, trends, and insights a human reviewer would miss.
+
+Return ONLY a valid JSON object:
+{
+  "career_trajectory": {
+    "pattern": "",
+    "velocity": "",
+    "direction": "",
+    "pivots": []
+  },
+  "skill_evolution": {
+    "emerging_skills": [],
+    "declining_skills": [],
+    "core_skills": [],
+    "skill_gaps": [],
+    "future_recommendation": ""
+  },
+  "experience_patterns": {
+    "avg_tenure_months": 0,
+    "job_hopping_risk": "",
+    "promotion_indicators": [],
+    "industry_diversity": ""
+  },
+  "personality_signals": {
+    "work_style": "",
+    "leadership_indicators": [],
+    "collaboration_signals": [],
+    "innovation_signals": []
+  },
+  "market_positioning": {
+    "target_roles": [],
+    "salary_band": "",
+    "competitive_advantages": [],
+    "market_gaps": []
+  },
+  "hidden_insights": [],
+  "red_flags": [],
+  "green_flags": [],
+  "career_prediction": ""
+}
+
+Resume JSON:
 """
 
 
-def analyze_resume(api_key: str, resume_text: str, job_description: str = "") -> dict:
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://api.groq.com/openai/v1"
-    )
+# ── Config — paste your values here ────────────────────────────────────────────────────────
 
-    text_to_analyze = resume_text
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]   
+MODEL        = "llama-3.3-70b-versatile"
+TARGET_ROLE  = ""                       # optional e.g. "Senior ML Engineer"
 
-    if job_description.strip():
-        text_to_analyze += (
-            "
+# ────────────────────────────────────────────────────────────────────────────
 
---- JOB DESCRIPTION (for gap analysis) ---
-"
-            + job_description
-        )
-
-    prompt = ANALYSIS_PROMPT.format(
-        resume_text=text_to_analyze[:5000]
-    )
-
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {
-                "role": "system",
-                "content": "Analyze resumes and return ONLY valid JSON."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0.3,
-        max_tokens=1200
-    )
-
-    raw = response.choices[0].message.content.strip()
-
-    raw = re.sub(r"^```(?:json)?", "", raw).strip()
-    raw = re.sub(r"```$", "", raw).strip()
-
-    return json.loads(raw)
-
-
-def score_color(score: int) -> str:
-    if score >= 75:
-        return "#4ade80"
-    elif score >= 50:
-        return "#facc15"
-    else:
-        return "#f87171"
-
-
-def render_pattern(p: dict):
-    css_class = {
-        "good": "pattern-good",
-        "warning": "pattern-warning",
-        "bad": "pattern-bad",
-        "insight": "pattern-insight",
-    }.get(p.get("type", "insight"), "pattern-insight")
-    emoji = {"good": "✅", "warning": "⚠️", "bad": "🚩", "insight": "💡"}.get(p.get("type", "insight"), "💡")
-    st.markdown(
-        f'<div class="pattern-item {css_class}"><strong>{emoji} {p["title"]}</strong><br>{p["detail"]}</div>',
-        unsafe_allow_html=True,
-    )
-
-
-api_key = st.secrets.get("GROQ_API_KEY", "")
-job_description = ""
+groq_key     = GROQ_API_KEY
+model_choice = MODEL
+target_role  = TARGET_ROLE
+run_parse = run_feedback = run_patterns = True
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-st.markdown(
-    "<h1 style='font-family:Space Grotesk;font-size:2rem;margin-bottom:0.2rem;'>"
-    "🔍 Resume Pattern Analyzer</h1>"
-    "<p style='color:#666;font-size:0.95rem;margin-bottom:1.5rem;'>"
-    "Uncover hidden patterns, red flags, and career signals in any resume.</p>",
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<div class="hero">
+  <h1>🧠 Resume<span class="accent">IQ</span></h1>
+  <p>AI-powered resume parsing · deep feedback · hidden pattern discovery</p>
+</div>
+""", unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader(
-    "Upload Resume (PDF, DOCX, or TXT)",
+uploaded = st.file_uploader(
+    "Drop your resume here",
     type=["pdf", "docx", "txt"],
-    label_visibility="visible",
+    help="PDF, DOCX, or TXT — max 10 MB",
 )
 
-if uploaded_file:
-    col_btn, col_info = st.columns([1, 3])
-    with col_btn:
-        analyze_btn = st.button("🚀 Analyze Resume")
-    with col_info:
-        st.markdown(
-            f"<div style='padding-top:0.6rem;color:#666;font-size:0.85rem;'>"
-            f"📄 {uploaded_file.name}</div>",
-            unsafe_allow_html=True,
-        )
+if uploaded and groq_key:
+    client = Groq(api_key=groq_key)
 
-    if analyze_btn:
-        if not api_key:
-            st.error("Missing GROQ_API_KEY in .streamlit/secrets.toml")
-            st.stop()
+    with st.spinner("📖 Extracting text from resume..."):
+        resume_text = extract_resume_text(uploaded)
 
-        with st.spinner("Extracting resume text…"):
+    if not resume_text.strip():
+        st.error("Could not extract text. Try a different format.")
+        st.stop()
+
+    st.success(f"✅ Extracted **{len(resume_text.split())} words** from `{uploaded.name}`")
+
+    # ── Run Agent ────────────────────────────────────────────────────────────
+    parsed_data = feedback_data = pattern_data = None
+
+    if run_parse:
+        with st.status("🤖 Agent parsing resume…", expanded=True) as status:
+            st.write("Sending to Groq LLM…")
+            raw = call_groq(client,
+                [{"role": "user", "content": PARSE_PROMPT + resume_text}],
+                model_choice)
             try:
-                resume_text = extract_text(uploaded_file)
-            except Exception as e:
-                st.error(f"Could not read file: {e}")
-                st.stop()
+                parsed_data = json.loads(clean_json(raw))
+                st.write("✅ Resume parsed successfully")
+            except json.JSONDecodeError:
+                st.error("JSON parse error — raw model output shown below")
+                st.code(raw)
+            status.update(label="✅ Parse complete", state="complete")
 
-        if len(resume_text) < 100:
-            st.error("Could not extract meaningful text from the file. Try a different format.")
-            st.stop()
+    if run_feedback and parsed_data:
+        extra = f"\n\nTarget Role Context: {target_role}" if target_role else ""
+        with st.status("📊 Generating feedback…", expanded=True) as status:
+            raw = call_groq(client,
+                [{"role": "user", "content": FEEDBACK_PROMPT + json.dumps(parsed_data) + extra}],
+                model_choice, temperature=0.4)
+            try:
+                feedback_data = json.loads(clean_json(raw))
+                st.write("✅ Feedback generated")
+            except:
+                st.error("Could not parse feedback JSON"); st.code(raw)
+            status.update(label="✅ Feedback ready", state="complete")
 
-        progress = st.progress(0, text="Sending to Groq...")
-        for i in range(1, 60):
-            time.sleep(0.02)
-            progress.progress(i, text="Analyzing patterns…")
+    if run_patterns and parsed_data:
+        with st.status("🔍 Discovering hidden patterns…", expanded=True) as status:
+            raw = call_groq(client,
+                [{"role": "user", "content": PATTERN_PROMPT + json.dumps(parsed_data)}],
+                model_choice, temperature=0.5)
+            try:
+                pattern_data = json.loads(clean_json(raw))
+                st.write("✅ Patterns discovered")
+            except:
+                st.error("Could not parse pattern JSON"); st.code(raw)
+            status.update(label="✅ Patterns found", state="complete")
 
-        try:
-            result = analyze_resume(api_key, resume_text, job_description)
-        except json.JSONDecodeError:
-            st.error("Groq returned invalid JSON. Retry.")
-            st.stop()
-        except Exception as e:
-            st.error(f"API error: {e}")
-            st.stop()
+    # ── Tabs ─────────────────────────────────────────────────────────────────
+    tabs = st.tabs(["👤 Profile", "📊 Feedback", "🔍 Patterns", "📄 Raw"])
 
-        for i in range(60, 101):
-            time.sleep(0.01)
-            progress.progress(i, text="Building report…")
-        progress.empty()
+    # ── TAB 1: PROFILE ────────────────────────────────────────────────────────
+    with tabs[0]:
+        if parsed_data:
+            p = parsed_data
+            c1, c2, c3 = st.columns([1,1,1])
+            with c1:
+                st.markdown(f"""
+                <div class='metric-card'>
+                  <div style='color:#94a3b8;font-size:0.8rem;'>CANDIDATE</div>
+                  <div style='font-size:1.4rem;font-weight:700;color:#f1f5f9;margin-top:4px;'>{p.get('name','—')}</div>
+                  <div style='color:#94a3b8;font-size:0.85rem;margin-top:4px;'>{p.get('email','')}</div>
+                  <div style='color:#94a3b8;font-size:0.85rem;'>{p.get('location','')}</div>
+                </div>""", unsafe_allow_html=True)
+            with c2:
+                st.markdown(f"""
+                <div class='metric-card'>
+                  <div style='color:#94a3b8;font-size:0.8rem;'>EXPERIENCE</div>
+                  <div style='font-size:2rem;font-weight:700;color:#818cf8;margin-top:4px;'>{p.get('total_experience_years','?')} <span style='font-size:1rem;color:#94a3b8;'>yrs</span></div>
+                  <div style='color:#94a3b8;font-size:0.85rem;margin-top:4px;'>{len(p.get('experience',[]))} roles · {len(p.get('education',[]))} degrees</div>
+                </div>""", unsafe_allow_html=True)
+            with c3:
+                links = []
+                if p.get('linkedin'): links.append(f"<a href='{p['linkedin']}' style='color:#818cf8;'>LinkedIn</a>")
+                if p.get('github'):   links.append(f"<a href='{p['github']}'   style='color:#818cf8;'>GitHub</a>")
+                if p.get('portfolio'):links.append(f"<a href='{p['portfolio']}' style='color:#818cf8;'>Portfolio</a>")
+                st.markdown(f"""
+                <div class='metric-card'>
+                  <div style='color:#94a3b8;font-size:0.8rem;'>LINKS</div>
+                  <div style='margin-top:8px;line-height:2;'>{'<br>'.join(links) if links else '<span style="color:#4a5568;">None found</span>'}</div>
+                </div>""", unsafe_allow_html=True)
 
-        # ── Results layout ─────────────────────────────────────────────────
+            # Summary
+            if p.get('summary'):
+                st.markdown("<div class='section-title'>Professional Summary</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='pattern-box success'>{p['summary']}</div>", unsafe_allow_html=True)
 
-        # Row 1: score + meta + verdict
-        r1a, r1b = st.columns([1, 3])
+            # Skills
+            skills = p.get('skills', {})
+            if any(skills.values()):
+                st.markdown("<div class='section-title'>Skills</div>", unsafe_allow_html=True)
+                for category, items in skills.items():
+                    if items:
+                        badges = " ".join(f"<span class='skill-badge'>{s}</span>" for s in items)
+                        st.markdown(f"<div style='margin-bottom:0.75rem;'><span style='color:#4a5568;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;'>{category.replace('_',' ')}</span><br>{badges}</div>", unsafe_allow_html=True)
 
-        with r1a:
-            score = result.get("overall_score", 0)
-            color = score_color(score)
-            st.markdown(
-                f"""<div class='card' style='text-align:center;'>
-                    <div class='score-container'>
-                        <div class='score-value' style='background:linear-gradient(135deg,{color},{color}bb);
-                             -webkit-background-clip:text;'>{score}</div>
-                        <div class='score-label'>Overall Score</div>
-                    </div>
-                    <div style='margin-top:0.5rem;'>
-                        <span class='tag tag-purple'>{result.get("candidate_level","—")}</span>
-                        <span class='tag tag-blue'>{result.get("primary_domain","—")}</span>
-                    </div>
-                </div>""",
-                unsafe_allow_html=True,
-            )
+            # Experience
+            exp = p.get('experience', [])
+            if exp:
+                st.markdown("<div class='section-title'>Experience</div>", unsafe_allow_html=True)
+                for e in exp:
+                    st.markdown(f"""
+                    <div class='timeline-item'>
+                      <div class='timeline-date'>{e.get('duration','')}</div>
+                      <div class='timeline-title'>{e.get('title','')}</div>
+                      <div class='timeline-sub'>{e.get('company','')}</div>
+                      <div style='color:#64748b;font-size:0.83rem;margin-top:4px;'>{e.get('description','')[:200]}{'…' if len(e.get('description',''))>200 else ''}</div>
+                    </div>""", unsafe_allow_html=True)
 
-        with r1b:
-            traj = result.get("career_trajectory", {})
-            st.markdown(
-                f"""<div class='card card-accent'>
-                    <div class='section-title'>📝 Executive Summary</div>
-                    <p style='margin:0;line-height:1.7;'>{result.get("executive_summary","—")}</p>
-                    <div style='margin-top:1rem;padding-top:1rem;border-top:1px solid #2a2a3d;'>
-                        <span style='color:#888;font-size:0.82rem;'>Career pattern: </span>
-                        <strong style='color:#a78bfa;'>{traj.get("pattern","—")}</strong>
-                        &nbsp;·&nbsp;
-                        <span style='color:#888;font-size:0.82rem;'>Avg tenure: </span>
-                        <strong>{traj.get("avg_tenure_months","?")}&nbsp;mo</strong>
-                    </div>
-                    <div style='margin-top:0.5rem;color:#aaa;font-size:0.85rem;'>{traj.get("observation","")}</div>
-                </div>""",
-                unsafe_allow_html=True,
-            )
+            # Education
+            edu = p.get('education', [])
+            if edu:
+                st.markdown("<div class='section-title'>Education</div>", unsafe_allow_html=True)
+                for e in edu:
+                    gpa = f" · GPA {e['gpa']}" if e.get('gpa') else ""
+                    st.markdown(f"""
+                    <div class='timeline-item'>
+                      <div class='timeline-date'>{e.get('year','')}</div>
+                      <div class='timeline-title'>{e.get('degree','')}</div>
+                      <div class='timeline-sub'>{e.get('institution','')}{gpa}</div>
+                    </div>""", unsafe_allow_html=True)
 
-        # Verdict banner
-        st.markdown(
-            f"""<div style='background:#221a3d;border:1px solid #3d2d70;border-radius:10px;
-                padding:1rem 1.5rem;margin-bottom:1.2rem;font-size:0.95rem;'>
-                💬 <strong>Hiring-manager verdict:</strong>&nbsp;
-                <em style='color:#c4b5fd;'>{result.get("verdict","—")}</em>
-            </div>""",
-            unsafe_allow_html=True,
-        )
+    # ── TAB 2: FEEDBACK ───────────────────────────────────────────────────────
+    with tabs[1]:
+        if feedback_data:
+            f = feedback_data
+            score = f.get('overall_score', 0)
+            grade = f.get('grade', 'N/A')
+            color = "#10b981" if score >= 75 else "#f59e0b" if score >= 50 else "#ef4444"
 
-        # Row 2: hidden patterns
-        st.markdown("<div class='section-title' style='font-size:1.05rem;'>🕵️ Hidden Patterns</div>", unsafe_allow_html=True)
-        patterns = result.get("hidden_patterns", [])
-        if patterns:
-            cols = st.columns(2)
-            for i, p in enumerate(patterns):
-                with cols[i % 2]:
-                    render_pattern(p)
-        else:
-            st.info("No hidden patterns identified.")
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.markdown(f"""
+                <div class='metric-card' style='text-align:center;'>
+                  <div style='font-size:4rem;font-weight:800;color:{color};line-height:1;'>{score}</div>
+                  <div style='font-size:1.5rem;color:#94a3b8;margin-top:4px;'>Grade: <b style='color:{color};'>{grade}</b></div>
+                  <div style='color:#64748b;font-size:0.8rem;margin-top:8px;'>Overall Resume Score</div>
+                </div>""", unsafe_allow_html=True)
 
-        st.markdown("---")
+                # Mini scores
+                for k, v in f.get('section_scores', {}).items():
+                    pct = int(v['score'] / v['max'] * 100) if v['max'] else 0
+                    bar_color = "#10b981" if pct >= 70 else "#f59e0b" if pct >= 40 else "#ef4444"
+                    st.markdown(f"""
+                    <div style='margin-bottom:10px;'>
+                      <div style='display:flex;justify-content:space-between;font-size:0.8rem;color:#94a3b8;margin-bottom:3px;'>
+                        <span>{k.replace('_',' ').title()}</span><span>{v['score']}/{v['max']}</span>
+                      </div>
+                      <div style='background:#1e2530;border-radius:4px;height:6px;'>
+                        <div style='width:{pct}%;height:6px;background:{bar_color};border-radius:4px;'></div>
+                      </div>
+                    </div>""", unsafe_allow_html=True)
 
-        # Row 3: strengths + red flags
-        c3a, c3b = st.columns(2)
-        with c3a:
-            st.markdown("<div class='section-title'>✅ Strengths</div>", unsafe_allow_html=True)
-            for s in result.get("strengths", []):
-                st.markdown(f"<div class='pattern-item pattern-good'>• {s}</div>", unsafe_allow_html=True)
+            with c2:
+                st.markdown(f"<div class='pattern-box success'><b>Executive Summary:</b><br>{f.get('executive_summary','')}</div>", unsafe_allow_html=True)
 
-        with c3b:
-            st.markdown("<div class='section-title'>🚩 Red Flags</div>", unsafe_allow_html=True)
-            for r in result.get("red_flags", []):
-                st.markdown(f"<div class='pattern-item pattern-bad'>• {r}</div>", unsafe_allow_html=True)
+                # Career level
+                if f.get('career_level'):
+                    st.markdown(f"<div class='pattern-box'><b>🎯 Career Level:</b> {f['career_level']}</div>", unsafe_allow_html=True)
 
-        st.markdown("---")
+                # Strengths
+                strengths = f.get('strengths', [])
+                if strengths:
+                    st.markdown("<div class='section-title'>✅ Strengths</div>", unsafe_allow_html=True)
+                    for s in strengths:
+                        st.markdown(f"<div class='pattern-box success'>✓ {s}</div>", unsafe_allow_html=True)
 
-        # Row 4: ATS + writing quality
-        c4a, c4b = st.columns(2)
+                # Improvements
+                improvements = f.get('critical_improvements', [])
+                if improvements:
+                    st.markdown("<div class='section-title'>⚡ Critical Improvements</div>", unsafe_allow_html=True)
+                    for imp in improvements:
+                        p_color = {"high":"danger","medium":"warning","low":""}.get(imp.get('priority',''), "")
+                        st.markdown(f"""
+                        <div class='pattern-box {p_color}'>
+                          <b>🔸 {imp.get('issue','')}</b>
+                          <div style='margin-top:6px;color:#94a3b8;font-size:0.85rem;'><i>Why it matters:</i> {imp.get('why_it_matters','')}</div>
+                          <div style='margin-top:4px;color:#a5b4fc;font-size:0.85rem;'><i>Fix:</i> {imp.get('fix','')}</div>
+                          <div style='margin-top:4px;'><span style='background:#1e2530;padding:2px 8px;border-radius:10px;font-size:0.7rem;color:#94a3b8;'>Priority: {imp.get('priority','').upper()}</span></div>
+                        </div>""", unsafe_allow_html=True)
 
-        with c4a:
-            ats = result.get("ats_analysis", {})
-            ats_score = ats.get("score", 0)
-            st.markdown(
-                f"""<div class='card'>
-                    <div class='section-title'>🤖 ATS Compatibility
-                        <span style='margin-left:auto;font-size:1.1rem;color:{score_color(ats_score)};
-                              font-family:Space Grotesk;font-weight:700;'>{ats_score}/100</span>
-                    </div>""",
-                unsafe_allow_html=True,
-            )
-            st.progress(ats_score / 100)
-            for issue in ats.get("issues", []):
-                st.markdown(f"<div class='pattern-item pattern-warning'>⚠️ {issue}</div>", unsafe_allow_html=True)
-            missing_kw = ats.get("keywords_missing", [])
-            if missing_kw:
-                st.markdown("<div style='margin-top:0.8rem;color:#888;font-size:0.82rem;'>Missing keywords:</div>", unsafe_allow_html=True)
-                for kw in missing_kw:
-                    st.markdown(f"<span class='tag tag-yellow'>{kw}</span>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            # ATS Section
+            ats = f.get('ats_compatibility', {})
+            if ats:
+                st.markdown("---")
+                st.markdown("<div class='section-title'>🤖 ATS Compatibility</div>", unsafe_allow_html=True)
+                a1, a2 = st.columns(2)
+                with a1:
+                    ats_score = ats.get('score', 0)
+                    ats_col = "#10b981" if ats_score >= 70 else "#f59e0b" if ats_score >= 40 else "#ef4444"
+                    st.markdown(f"<div class='metric-card' style='text-align:center;'><div style='font-size:2.5rem;font-weight:700;color:{ats_col};'>{ats_score}%</div><div style='color:#94a3b8;'>ATS Score</div></div>", unsafe_allow_html=True)
+                    for issue in ats.get('issues', []):
+                        st.markdown(f"<div class='pattern-box warning'>⚠ {issue}</div>", unsafe_allow_html=True)
+                with a2:
+                    missing_kw = ats.get('keywords_missing', [])
+                    if missing_kw:
+                        st.markdown("<b style='color:#94a3b8;font-size:0.85rem;'>Missing Keywords:</b>", unsafe_allow_html=True)
+                        badges = " ".join(f"<span class='skill-badge' style='background:#3b1f1f;color:#fca5a5;border-color:#7f1d1d;'>{k}</span>" for k in missing_kw)
+                        st.markdown(badges, unsafe_allow_html=True)
 
-        with c4b:
-            wq = result.get("writing_quality", {})
-            wq_score = wq.get("score", 0)
-            st.markdown(
-                f"""<div class='card'>
-                    <div class='section-title'>✍️ Writing Quality
-                        <span style='margin-left:auto;font-size:1.1rem;color:{score_color(wq_score)};
-                              font-family:Space Grotesk;font-weight:700;'>{wq_score}/100</span>
-                    </div>""",
-                unsafe_allow_html=True,
-            )
-            st.progress(wq_score / 100)
-            for issue in wq.get("issues", []):
-                st.markdown(f"<div class='pattern-item pattern-warning'>⚠️ {issue}</div>", unsafe_allow_html=True)
-            if wq.get("weak_bullets"):
-                with st.expander("See example weak bullet"):
-                    st.markdown(f"> {wq['weak_bullets'][0]}")
-            if wq.get("strong_bullets"):
-                with st.expander("See example strong bullet"):
-                    st.markdown(f"> {wq['strong_bullets'][0]}")
-            st.markdown("</div>", unsafe_allow_html=True)
+            # Quantification score chart
+            q_score = f.get('quantification_score', 0)
+            r_score = f.get('readability_score', 0)
+            if q_score or r_score:
+                st.markdown("---")
+                fig = go.Figure(go.Bar(
+                    x=["Quantification", "Readability", "ATS"],
+                    y=[q_score, r_score, ats.get('score', 0)],
+                    marker_color=["#6366f1", "#8b5cf6", "#a78bfa"],
+                    text=[f"{v}%" for v in [q_score, r_score, ats.get('score', 0)]],
+                    textposition="outside",
+                ))
+                fig.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font_color="#94a3b8", height=280,
+                    yaxis=dict(range=[0, 110], gridcolor="#1e2530"),
+                    xaxis=dict(gridcolor="#1e2530"),
+                    margin=dict(t=20, b=20, l=0, r=0),
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
-        # Row 5: skill gaps
-        gaps = result.get("skill_gaps", [])
-        if gaps:
+    # ── TAB 3: PATTERNS ───────────────────────────────────────────────────────
+    with tabs[2]:
+        if pattern_data:
+            pd_data = pattern_data
+
+            c1, c2 = st.columns(2)
+            with c1:
+                # Career trajectory
+                traj = pd_data.get('career_trajectory', {})
+                if traj:
+                    st.markdown("<div class='section-title'>🚀 Career Trajectory</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='pattern-box success'><b>Pattern:</b> {traj.get('pattern','')}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='pattern-box'><b>Velocity:</b> {traj.get('velocity','')}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='pattern-box'><b>Direction:</b> {traj.get('direction','')}</div>", unsafe_allow_html=True)
+                    for pivot in traj.get('pivots', []):
+                        st.markdown(f"<div class='pattern-box warning'>↪ Career Pivot: {pivot}</div>", unsafe_allow_html=True)
+
+                # Experience patterns
+                exp_pat = pd_data.get('experience_patterns', {})
+                if exp_pat:
+                    st.markdown("<div class='section-title'>⏱ Experience Patterns</div>", unsafe_allow_html=True)
+                    tenure = exp_pat.get('avg_tenure_months', 0)
+                    hopping = exp_pat.get('job_hopping_risk', '')
+                    hop_color = "danger" if "high" in hopping.lower() else "warning" if "medium" in hopping.lower() else "success"
+                    st.markdown(f"<div class='pattern-box'><b>Avg Tenure:</b> {tenure} months</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='pattern-box {hop_color}'><b>Job Hopping Risk:</b> {hopping}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='pattern-box'><b>Industry Diversity:</b> {exp_pat.get('industry_diversity','')}</div>", unsafe_allow_html=True)
+                    for pi in exp_pat.get('promotion_indicators', []):
+                        st.markdown(f"<div class='pattern-box success'>⬆ {pi}</div>", unsafe_allow_html=True)
+
+            with c2:
+                # Skill evolution
+                skill_evo = pd_data.get('skill_evolution', {})
+                if skill_evo:
+                    st.markdown("<div class='section-title'>📈 Skill Evolution</div>", unsafe_allow_html=True)
+                    if skill_evo.get('emerging_skills'):
+                        st.markdown("<b style='color:#10b981;font-size:0.85rem;'>Emerging 🔼</b>", unsafe_allow_html=True)
+                        st.markdown(" ".join(f"<span class='skill-badge' style='border-color:#10b981;color:#6ee7b7;background:#064e3b;'>{s}</span>" for s in skill_evo['emerging_skills']), unsafe_allow_html=True)
+                    if skill_evo.get('core_skills'):
+                        st.markdown("<b style='color:#818cf8;font-size:0.85rem;margin-top:8px;display:block;'>Core 💎</b>", unsafe_allow_html=True)
+                        st.markdown(" ".join(f"<span class='skill-badge'>{s}</span>" for s in skill_evo['core_skills']), unsafe_allow_html=True)
+                    if skill_evo.get('skill_gaps'):
+                        st.markdown("<b style='color:#ef4444;font-size:0.85rem;margin-top:8px;display:block;'>Gaps ⚠</b>", unsafe_allow_html=True)
+                        st.markdown(" ".join(f"<span class='skill-badge' style='border-color:#ef4444;color:#fca5a5;background:#450a0a;'>{s}</span>" for s in skill_evo['skill_gaps']), unsafe_allow_html=True)
+                    if skill_evo.get('future_recommendation'):
+                        st.markdown(f"<div class='pattern-box success' style='margin-top:12px;'><b>💡 Recommendation:</b> {skill_evo['future_recommendation']}</div>", unsafe_allow_html=True)
+
+                # Market positioning
+                market = pd_data.get('market_positioning', {})
+                if market:
+                    st.markdown("<div class='section-title'>💼 Market Positioning</div>", unsafe_allow_html=True)
+                    if market.get('target_roles'):
+                        roles = " ".join(f"<span class='skill-badge' style='background:#1e3a5f;border-color:#3b82f6;color:#93c5fd;'>{r}</span>" for r in market['target_roles'])
+                        st.markdown(f"<b style='color:#94a3b8;font-size:0.8rem;'>Best-fit roles:</b><br>{roles}", unsafe_allow_html=True)
+                    if market.get('salary_band'):
+                        st.markdown(f"<div class='pattern-box success' style='margin-top:8px;'><b>💰 Salary Band:</b> {market['salary_band']}</div>", unsafe_allow_html=True)
+                    for adv in market.get('competitive_advantages', []):
+                        st.markdown(f"<div class='pattern-box success'>✦ {adv}</div>", unsafe_allow_html=True)
+
+            # Personality signals
+            pers = pd_data.get('personality_signals', {})
+            if pers:
+                st.markdown("---")
+                st.markdown("<div class='section-title'>🧬 Personality Signals (from writing patterns)</div>", unsafe_allow_html=True)
+                p1, p2, p3 = st.columns(3)
+                with p1:
+                    st.markdown(f"<div class='metric-card'><b style='color:#818cf8;'>Work Style</b><br><span style='color:#e2e8f0;'>{pers.get('work_style','')}</span></div>", unsafe_allow_html=True)
+                with p2:
+                    leads = pers.get('leadership_indicators', [])
+                    leads_html = "<br>".join("<span style='color:#e2e8f0;font-size:0.85rem;'>• " + l + "</span>" for l in leads[:3])
+                    st.markdown(f"<div class='metric-card'><b style='color:#818cf8;'>Leadership Signals</b><br>{leads_html}</div>", unsafe_allow_html=True)
+                with p3:
+                    inno = pers.get('innovation_signals', [])
+                    inno_html = "<br>".join("<span style='color:#e2e8f0;font-size:0.85rem;'>• " + i + "</span>" for i in inno[:3])
+                    st.markdown(f"<div class='metric-card'><b style='color:#818cf8;'>Innovation Signals</b><br>{inno_html}</div>", unsafe_allow_html=True)
+
+            # Hidden insights, green/red flags
             st.markdown("---")
-            st.markdown("<div class='section-title'>🧩 Skill Gaps</div>", unsafe_allow_html=True)
-            for g in gaps:
-                st.markdown(f"<span class='tag tag-red'>{g}</span>", unsafe_allow_html=True)
+            g1, g2 = st.columns(2)
+            with g1:
+                green = pd_data.get('green_flags', [])
+                if green:
+                    st.markdown("<div class='section-title'>🟢 Green Flags</div>", unsafe_allow_html=True)
+                    for g in green:
+                        st.markdown(f"<div class='pattern-box success'>✅ {g}</div>", unsafe_allow_html=True)
+            with g2:
+                red = pd_data.get('red_flags', [])
+                if red:
+                    st.markdown("<div class='section-title'>🔴 Red Flags</div>", unsafe_allow_html=True)
+                    for r in red:
+                        st.markdown(f"<div class='pattern-box danger'>⚠ {r}</div>", unsafe_allow_html=True)
 
-        # Row 6: recommendations
-        st.markdown("---")
-        st.markdown("<div class='section-title'>🎯 Top Recommendations</div>", unsafe_allow_html=True)
-        recs = result.get("top_recommendations", [])
-        for rec in recs:
-            priority = rec.get("priority", "medium")
-            tag_class = "tag-red" if priority == "high" else "tag-yellow"
-            st.markdown(
-                f"""<div class='pattern-item pattern-insight'>
-                    <span class='tag {tag_class}' style='margin-right:0.5rem;'>{priority.upper()}</span>
-                    {rec.get("action","—")}
-                </div>""",
-                unsafe_allow_html=True,
-            )
+            hidden = pd_data.get('hidden_insights', [])
+            if hidden:
+                st.markdown("<div class='section-title'>🔮 Hidden Insights</div>", unsafe_allow_html=True)
+                for h in hidden:
+                    st.markdown(f"<div class='pattern-box' style='border-left-color:#8b5cf6;'>🔍 {h}</div>", unsafe_allow_html=True)
 
-        # Raw JSON toggle
-        with st.expander("🔧 Raw JSON response"):
-            st.json(result)
+            career_pred = pd_data.get('career_prediction', '')
+            if career_pred:
+                st.markdown(f"""
+                <div style='background:linear-gradient(135deg,#1a1429,#1e2840);border:1px solid #6366f1;border-radius:12px;padding:1.5rem;margin-top:1.5rem;text-align:center;'>
+                  <div style='color:#818cf8;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.1em;'>AI Career Prediction</div>
+                  <div style='color:#f1f5f9;font-size:1.05rem;margin-top:8px;font-style:italic;'>{career_pred}</div>
+                </div>""", unsafe_allow_html=True)
 
+    # ── TAB 4: RAW ────────────────────────────────────────────────────────────
+    with tabs[3]:
+        if parsed_data:
+            st.markdown("**Parsed JSON:**")
+            st.json(parsed_data)
+        if feedback_data:
+            st.markdown("**Feedback JSON:**")
+            st.json(feedback_data)
+        if pattern_data:
+            st.markdown("**Pattern JSON:**")
+            st.json(pattern_data)
+        st.markdown("**Raw Resume Text:**")
+        with st.expander("Show extracted text"):
+            st.text(resume_text[:3000] + ("…" if len(resume_text) > 3000 else ""))
+
+elif uploaded and not groq_key:
+    st.warning("⬅ Please enter your Groq API key in the sidebar to begin analysis.")
 else:
-    # Empty state
-    st.markdown(
-        """
-        <div style='text-align:center;padding:4rem 2rem;color:#444;'>
-            <div style='font-size:3rem;margin-bottom:1rem;'>📄</div>
-            <div style='font-size:1.1rem;font-weight:500;color:#555;'>Drop a resume to get started</div>
-            <div style='font-size:0.85rem;margin-top:0.5rem;'>Supports PDF, DOCX, and plain text</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # Landing state
+    st.markdown("""
+    <div style='text-align:center;padding:3rem 0;'>
+      <div style='font-size:4rem;'>📄</div>
+      <div style='color:#94a3b8;font-size:1.1rem;margin-top:1rem;'>Upload a resume to get started</div>
+      <div style='color:#4a5568;font-size:0.9rem;margin-top:0.5rem;'>PDF · DOCX · TXT supported</div>
+    </div>
+    <div style='display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-top:2rem;'>
+      <div class='metric-card' style='text-align:center;'>
+        <div style='font-size:2rem;'>🔍</div>
+        <div style='color:#f1f5f9;font-weight:600;margin-top:8px;'>Smart Parsing</div>
+        <div style='color:#64748b;font-size:0.85rem;margin-top:4px;'>Extracts all structured data from any resume format</div>
+      </div>
+      <div class='metric-card' style='text-align:center;'>
+        <div style='font-size:2rem;'>📊</div>
+        <div style='color:#f1f5f9;font-weight:600;margin-top:8px;'>Deep Feedback</div>
+        <div style='color:#64748b;font-size:0.85rem;margin-top:4px;'>Scored sections, ATS analysis, actionable fixes</div>
+      </div>
+      <div class='metric-card' style='text-align:center;'>
+        <div style='font-size:2rem;'>🧬</div>
+        <div style='color:#f1f5f9;font-weight:600;margin-top:8px;'>Hidden Patterns</div>
+        <div style='color:#64748b;font-size:0.85rem;margin-top:4px;'>Career trajectory, skill evolution, personality signals</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
