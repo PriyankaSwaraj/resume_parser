@@ -354,39 +354,63 @@ if uploaded_file:
         )
 
     if analyze_btn:
-        if not api_key:
-            st.error("Please enter your Gemini API key in the sidebar.")
-            st.stop()
 
-        with st.spinner("Extracting resume text…"):
-            try:
-                resume_text = extract_text(uploaded_file)
-            except Exception as e:
-                st.error(f"Could not read file: {e}")
-                st.stop()
+    if not api_key:
+        st.error("Missing GROQ_API_KEY in .streamlit/secrets.toml")
+        st.stop()
 
-        if len(resume_text) < 100:
-            st.error("Could not extract meaningful text from the file. Try a different format.")
-            st.stop()
-
-       progress = st.progress(0, text="Sending to Groq…")
-        for i in range(1, 60):
-            time.sleep(0.02)
-            progress.progress(i, text="Analyzing patterns…")
-
+    with st.spinner("Extracting resume text…"):
         try:
-            result = analyze_resume(api_key, resume_text, job_description)
-        except json.JSONDecodeError:
-           st.error("Groq returned invalid JSON. Retry.")
-            st.stop()
+            resume_text = extract_text(uploaded_file)
         except Exception as e:
-            st.error(f"API error: {e}")
+            st.error(f"Could not read file: {e}")
             st.stop()
 
-        for i in range(60, 101):
-            time.sleep(0.01)
-            progress.progress(i, text="Building report…")
-        progress.empty()
+    if len(resume_text) < 100:
+        st.error(
+            "Could not extract meaningful text from the file."
+        )
+        st.stop()
+
+    progress = st.progress(
+        0,
+        text="Sending to Groq..."
+    )
+
+    for i in range(1, 60):
+        time.sleep(0.02)
+        progress.progress(
+            i,
+            text="Analyzing patterns..."
+        )
+
+    try:
+        result = analyze_resume(
+            api_key,
+            resume_text,
+            job_description
+        )
+
+    except json.JSONDecodeError:
+        st.error(
+            "Groq returned invalid JSON."
+        )
+        st.stop()
+
+    except Exception as e:
+        st.error(
+            f"API error: {e}"
+        )
+        st.stop()
+
+    for i in range(60, 101):
+        time.sleep(0.01)
+        progress.progress(
+            i,
+            text="Building report..."
+        )
+
+    progress.empty()
 
         # ── Results layout ─────────────────────────────────────────────────
 
