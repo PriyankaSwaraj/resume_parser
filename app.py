@@ -1,5 +1,5 @@
 import streamlit as st
-import google.generativeai as genai
+from openai import OpenAI
 import pdfplumber
 import docx
 import io
@@ -325,8 +325,7 @@ def render_pattern(p: dict):
     )
 
 
-api_key = st.secrets.get("GEMINI_API_KEY", "")
-job_description = ""
+api_key = st.secrets.get("GROQ_API_KEY", "")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -372,7 +371,7 @@ if uploaded_file:
             st.error("Could not extract meaningful text from the file. Try a different format.")
             st.stop()
 
-        progress = st.progress(0, text="Sending to Gemini 1.5 Flash…")
+       progress = st.progress(0, text="Sending to Groq…")
         for i in range(1, 60):
             time.sleep(0.02)
             progress.progress(i, text="Analyzing patterns…")
@@ -380,7 +379,7 @@ if uploaded_file:
         try:
             result = analyze_resume(api_key, resume_text, job_description)
         except json.JSONDecodeError:
-            st.error("Gemini returned an unexpected format. Please try again.")
+           st.error("Groq returned invalid JSON. Retry.")
             st.stop()
         except Exception as e:
             st.error(f"API error: {e}")
