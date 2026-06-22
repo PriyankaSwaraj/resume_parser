@@ -258,7 +258,7 @@ Resume:
 def analyze_resume(api_key: str, resume_text: str, job_description: str = "") -> dict:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(
-        "gemini-1.5-flash",  # cheap & fast — won't exhaust credits
+        "gemini-2.0-flash-lite",  # cheap & fast — won't exhaust credits
         generation_config=genai.types.GenerationConfig(
             temperature=0.3,
             max_output_tokens=2048,
