@@ -256,7 +256,6 @@ Resume:
 
 
 def analyze_resume(api_key: str, resume_text: str, job_description: str = "") -> dict:
-
     client = OpenAI(
         api_key=api_key,
         base_url="https://api.groq.com/openai/v1"
@@ -266,7 +265,10 @@ def analyze_resume(api_key: str, resume_text: str, job_description: str = "") ->
 
     if job_description.strip():
         text_to_analyze += (
-            "\n\n--- JOB DESCRIPTION ---\n"
+            "
+
+--- JOB DESCRIPTION (for gap analysis) ---
+"
             + job_description
         )
 
@@ -279,9 +281,7 @@ def analyze_resume(api_key: str, resume_text: str, job_description: str = "") ->
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "You analyze resumes and return ONLY valid JSON."
-                )
+                "content": "Analyze resumes and return ONLY valid JSON."
             },
             {
                 "role": "user",
@@ -294,7 +294,7 @@ def analyze_resume(api_key: str, resume_text: str, job_description: str = "") ->
 
     raw = response.choices[0].message.content.strip()
 
-    raw = re.sub(r"^```json", "", raw).strip()
+    raw = re.sub(r"^```(?:json)?", "", raw).strip()
     raw = re.sub(r"```$", "", raw).strip()
 
     return json.loads(raw)
@@ -324,6 +324,7 @@ def render_pattern(p: dict):
 
 
 api_key = st.secrets.get("GROQ_API_KEY", "")
+job_description = ""
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -354,63 +355,39 @@ if uploaded_file:
         )
 
     if analyze_btn:
-
-    if not api_key:
-        st.error("Missing GROQ_API_KEY in .streamlit/secrets.toml")
-        st.stop()
-
-    with st.spinner("Extracting resume text…"):
-        try:
-            resume_text = extract_text(uploaded_file)
-        except Exception as e:
-            st.error(f"Could not read file: {e}")
+        if not api_key:
+            st.error("Missing GROQ_API_KEY in .streamlit/secrets.toml")
             st.stop()
 
-    if len(resume_text) < 100:
-        st.error(
-            "Could not extract meaningful text from the file."
-        )
-        st.stop()
+        with st.spinner("Extracting resume text…"):
+            try:
+                resume_text = extract_text(uploaded_file)
+            except Exception as e:
+                st.error(f"Could not read file: {e}")
+                st.stop()
 
-    progress = st.progress(
-        0,
-        text="Sending to Groq..."
-    )
+        if len(resume_text) < 100:
+            st.error("Could not extract meaningful text from the file. Try a different format.")
+            st.stop()
 
-    for i in range(1, 60):
-        time.sleep(0.02)
-        progress.progress(
-            i,
-            text="Analyzing patterns..."
-        )
+        progress = st.progress(0, text="Sending to Groq...")
+        for i in range(1, 60):
+            time.sleep(0.02)
+            progress.progress(i, text="Analyzing patterns…")
 
-    try:
-        result = analyze_resume(
-            api_key,
-            resume_text,
-            job_description
-        )
+        try:
+            result = analyze_resume(api_key, resume_text, job_description)
+        except json.JSONDecodeError:
+            st.error("Groq returned invalid JSON. Retry.")
+            st.stop()
+        except Exception as e:
+            st.error(f"API error: {e}")
+            st.stop()
 
-    except json.JSONDecodeError:
-        st.error(
-            "Groq returned invalid JSON."
-        )
-        st.stop()
-
-    except Exception as e:
-        st.error(
-            f"API error: {e}"
-        )
-        st.stop()
-
-    for i in range(60, 101):
-        time.sleep(0.01)
-        progress.progress(
-            i,
-            text="Building report..."
-        )
-
-    progress.empty()
+        for i in range(60, 101):
+            time.sleep(0.01)
+            progress.progress(i, text="Building report…")
+        progress.empty()
 
         # ── Results layout ─────────────────────────────────────────────────
 
@@ -575,5 +552,4 @@ else:
         """,
         unsafe_allow_html=True,
     )
-
 
