@@ -304,33 +304,8 @@ def render_pattern(p: dict):
     )
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-
-with st.sidebar:
-    st.markdown("## 🔑 Configuration")
-    api_key = st.secrets.get("GEMINI_API_KEY", "") or st.text_input(
-        "Gemini API Key",
-        type="password",
-        placeholder="AIza...",
-        help="Get a free key at aistudio.google.com",
-    )
-    st.markdown("---")
-    st.markdown("### 📋 Optional: Job Description")
-    job_description = st.text_area(
-        "Paste JD for gap analysis",
-        height=160,
-        placeholder="Paste the job description here to get role-specific feedback…",
-    )
-    st.markdown("---")
-    st.markdown(
-        """
-        <div style='font-size:0.78rem; color:#555; line-height:1.6;'>
-        Uses <strong style='color:#7c6af7'>Gemini 1.5 Flash</strong> — fast & low-cost.<br>
-        Resume text is capped at 12 000 chars to stay well within free-tier limits.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+api_key = st.secrets.get("GEMINI_API_KEY", "")
+job_description = ""
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -558,4 +533,5 @@ else:
         """,
         unsafe_allow_html=True,
     )
+
 
