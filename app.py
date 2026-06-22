@@ -256,26 +256,47 @@ Resume:
 
 
 def analyze_resume(api_key: str, resume_text: str, job_description: str = "") -> dict:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        "gemini-2.0-flash-lite",  # cheap & fast — won't exhaust credits
-        generation_config=genai.types.GenerationConfig(
-            temperature=0.3,
-            max_output_tokens=2048,
-        ),
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://api.groq.com/openai/v1"
     )
 
     text_to_analyze = resume_text
+
     if job_description.strip():
-        text_to_analyze += f"\n\n--- JOB DESCRIPTION (for gap analysis) ---\n{job_description}"
+        text_to_analyze += (
+            "\n\n--- JOB DESCRIPTION ---\n"
+            + job_description
+        )
 
-    prompt = ANALYSIS_PROMPT.format(resume_text=text_to_analyze[:12000])  # cap tokens
+    prompt = ANALYSIS_PROMPT.format(
+        resume_text=text_to_analyze[:5000]
+    )
 
-    response = model.generate_content(prompt)
-    raw = response.text.strip()
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
 
-    # Strip any accidental markdown fences
-    raw = re.sub(r"^```(?:json)?", "", raw).strip()
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You analyze resumes and return ONLY valid JSON."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+
+        temperature=0.3,
+        max_tokens=1200
+    )
+
+    raw = response.choices[0].message.content.strip()
+
+    raw = re.sub(r"^```json", "", raw).strip()
     raw = re.sub(r"```$", "", raw).strip()
 
     return json.loads(raw)
