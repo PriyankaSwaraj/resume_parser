@@ -1,145 +1,295 @@
 import json
-import numpy as np
-from pydantic import BaseModel, Field
+import math
 from groq import Groq
+from pydantic import BaseModel, Field
 
+# ─────────────────────────────────────────────────────────────
+#  DATA MODEL  — every field the LLM must extract
+# ─────────────────────────────────────────────────────────────
 
 class ResumeData(BaseModel):
-    name: str = Field(default="Unknown Candidate")
-    gpa: float = Field(default=0.0)
-    gpa_scale: float = Field(default=10.0)
-    degree: str = Field(default="")
-    is_cs_related_degree: bool = Field(default=False)
-    has_ds_algo: bool = Field(default=False)
-    has_discrete_math: bool = Field(default=False)
-    complex_projects: int = Field(default=0)
-    simple_projects: int = Field(default=0)
-    tech_skills: list[str] = Field(default_factory=list)
-    has_internship: bool = Field(default=False)
-    is_top_company_internship: bool = Field(default=False)
-    competitive_achievements_count: int = Field(default=0)
-    quantifiable_metrics_count: int = Field(default=0)
-    action_verb_bullet_count: int = Field(default=0)
-    weak_phrase_count: int = Field(default=0)
-    has_standard_sections: bool = Field(default=False)
-    employment_gap_months: int = Field(default=0)
+    # ── S_hygiene ──
+    total_page_count: int = Field(default=1)
+    extracted_links_array: list[str] = Field(default_factory=list)   # all href/urls found
+    raw_email_string: str = Field(default="")
+    detected_section_headers: list[str] = Field(default_factory=list)
+
+    # ── S_realization ──
+    skills_section_keywords: list[str] = Field(default_factory=list)
+    project_descriptions_text_corpus: str = Field(default="")
+    experience_descriptions_text_corpus: str = Field(default="")
+
+    # ── S_complexity ──
+    project_titles: list[str] = Field(default_factory=list)
+    project_tech_keywords: list[list[str]] = Field(default_factory=list)  # per-project
+    architectural_regex_flags: list[bool] = Field(default_factory=list)   # per-project
+
+    # ── S_impact ──
+    total_bullet_points_count: int = Field(default=0)
+    metric_regex_match_count: int = Field(default=0)
+    regex_extracted_numeric_values: list[int] = Field(default_factory=list)  # V_b values
+
+    # ── S_production ──
+    project_count: int = Field(default=0)
+    code_repository_urls: list[str] = Field(default_factory=list)
+    deployment_live_urls: list[str] = Field(default_factory=list)
+
+    # ── S_clarity ──
+    buzzword_frequency_map: dict[str, int] = Field(default_factory=dict)
+
+    # ── S_domain ──
+    domain_classification_vector: list[str] = Field(default_factory=list)
+
+    # ── S_velocity ──
+    experience_timeline_intervals: list[dict] = Field(default_factory=list)  # [{role, months, type}]
+
+    # ── meta ──
+    candidate_name: str = Field(default="Unknown")
+    btech_year: int = Field(default=3)   # 2, 3, or 4
 
 
-SYSTEM_PROMPT = """You are a precise ATS resume parser for Indian college student resumes.
-Extract the requested fields and return ONLY a valid JSON object — no markdown, no explanations.
+# ─────────────────────────────────────────────────────────────
+#  SYSTEM PROMPT
+# ─────────────────────────────────────────────────────────────
 
-Rules:
-- name: Full name of the candidate.
-- gpa: Numeric GPA if present, else 0.0.
-- gpa_scale: The denominator. Default 10.0 for Indian universities, 4.0 for US.
-- degree: Full degree name as written (e.g. "B.Tech Computer Science").
-- is_cs_related_degree: true if degree is CS, IT, ECE, Software Engineering, Data Science, or related tech field.
-- has_ds_algo: true if DSA, Data Structures, Algorithms, LeetCode, or competitive programming appears.
-- has_discrete_math: true if Discrete Math, Logic, Graph Theory, Combinatorics appears.
-- complex_projects: count of complex engineering projects (ML systems, compilers, OS, blockchain, embedded, distributed systems).
-- simple_projects: count of basic web apps, CRUD apps, landing pages, portfolio sites, tutorial projects.
-- tech_skills: all programming languages, frameworks, databases, tools explicitly listed.
-- has_internship: true if any internship at any company is present.
-- is_top_company_internship: true if internship is at a well-known company (Google, Microsoft, Amazon, Flipkart, Swiggy, Zomato, Razorpay, FAANG, Infosys, TCS, Wipro, HCL, Accenture, or similar recognized tech company).
-- competitive_achievements_count: count of hackathon wins, competitive programming placements, published papers, open-source contributions.
-- quantifiable_metrics_count: count of bullet points with concrete numbers (e.g. "reduced latency by 40%", "served 10k users", "managed 5L budget").
-- action_verb_bullet_count: count of bullet points starting with strong action verbs (Optimized, Built, Architected, Implemented, Designed, Developed, Deployed, Led, Reduced, Improved, Automated, Created, Engineered, Launched, Scaled).
-- weak_phrase_count: count of bullet points starting with weak phrases like "Responsible for", "Helped with", "Worked on", "Assisted in", "Was involved in".
-- has_standard_sections: true if resume clearly contains standard sections like Education, Experience/Internships, Projects, Skills.
-- employment_gap_months: total months of unexplained gap between education end and internship/job start. 0 if no gap or still studying.
+SYSTEM_PROMPT = """You are a precise resume data extractor for B.Tech student resumes.
+Return ONLY a valid JSON object — no markdown, no explanation, no extra keys.
+
+Extract EXACTLY these fields:
+
+total_page_count (int): Number of pages in the resume.
+
+extracted_links_array (array of strings): Every URL/link found (GitHub, LinkedIn, portfolio, Vercel, Netlify, etc.).
+
+raw_email_string (string): The email address found on the resume.
+
+detected_section_headers (array of strings): All section headings found, e.g. ["Education","Projects","Skills","Experience"].
+
+skills_section_keywords (array of strings): ONLY skills listed in the dedicated Skills section.
+
+project_descriptions_text_corpus (string): All text from the Projects section concatenated.
+
+experience_descriptions_text_corpus (string): All text from Experience/Internships section concatenated.
+
+project_titles (array of strings): Title of each project listed.
+
+project_tech_keywords (array of arrays of strings): For each project, the tech keywords used IN THAT PROJECT (same order as project_titles).
+
+architectural_regex_flags (array of booleans): For each project, true if it uses any of: WebSockets, Kafka, Docker, Kubernetes, Redis, CI/CD, gRPC, Microservices, Distributed Systems, AWS, GCP, Azure, Celery, RabbitMQ. Same order as project_titles.
+
+total_bullet_points_count (int): Total bullet points across Projects and Experience sections.
+
+metric_regex_match_count (int): Count of bullet points containing numbers/percentages/ms/users/$. e.g. "40%", "500 users", "200ms".
+
+regex_extracted_numeric_values (array of integers): For each metric bullet, extract the numeric value:
+  - Percentages: raw integer (40% -> 40)
+  - Users/scale: raw count (500 users -> 500)
+  - Latency: ms value (200ms -> 200)
+  - 1st place -> 100, Top 10% -> 50
+
+project_count (int): Total number of projects.
+
+code_repository_urls (array of strings): Only GitHub/GitLab repo links for projects.
+
+deployment_live_urls (array of strings): Only live deployment links (Vercel, Netlify, Heroku, AWS link, custom domain for a project).
+
+buzzword_frequency_map (object): Count occurrences of these EXACT words anywhere in the resume:
+  ["passionate","detail-oriented","synergy","motivated","hardworking","team player","go-getter","self-starter","results-driven","dynamic","innovative","proactive"]
+  Only include words that appear at least once. e.g. {"passionate": 2, "motivated": 1}
+
+domain_classification_vector (array of strings): Map skills_section_keywords to these domains only:
+  ["Web Development","AI/ML","DevOps","Web3","CyberSecurity","Mobile","Systems","Data Engineering","UI/UX"]
+  List only UNIQUE domains found. e.g. ["Web Development","DevOps"]
+
+experience_timeline_intervals (array of objects): Each experience entry as:
+  {"role": "SDE Intern at Google", "months": 3, "type": "internship"}
+  type must be one of: "internship", "freelance", "tech_lead", "member"
+  Classify campus technical roles as "tech_lead", non-technical club roles as "member".
+
+candidate_name (string): Full name of the candidate.
+
+btech_year (int): 2, 3, or 4. Infer from graduation year or year of study mentioned. Default 3.
 """
 
+
+# ─────────────────────────────────────────────────────────────
+#  LLM EXTRACTION
+# ─────────────────────────────────────────────────────────────
 
 def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
     client = Groq(api_key=api_key)
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        max_tokens=1000,
+        max_tokens=2000,
         temperature=0.0,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Parse this resume:\n\n{resume_text[:6000]}"}
+            {"role": "user", "content": f"Extract data from this resume:\n\n{resume_text[:7000]}"}
         ]
     )
-    raw_json = response.choices[0].message.content
-    parsed = json.loads(raw_json)
+    raw = response.choices[0].message.content
+    parsed = json.loads(raw)
     return ResumeData(**parsed)
 
 
-LOW_LEVEL_LANGUAGES = {"c", "c++", "rust", "java", "go"}
+# ─────────────────────────────────────────────────────────────
+#  SCORING ENGINE  — pure math, no LLM
+# ─────────────────────────────────────────────────────────────
+
+NOISE_WORDS = {
+    "passionate", "detail-oriented", "synergy", "motivated", "hardworking",
+    "team player", "go-getter", "self-starter", "results-driven", "dynamic",
+    "innovative", "proactive"
+}
+
+# Skill difficulty tiers for S_realization (updated formula)
+TIER3_SKILLS = {"golang","go","docker","kubernetes","redis","kafka","grpc","aws","gcp","azure",
+                "tensorflow","pytorch","spark","hadoop","elasticsearch","rabbitmq","celery",
+                "websockets","microservices","ci/cd","jenkins","terraform"}
+TIER2_SKILLS = {"python","java","javascript","typescript","react","nodejs","node.js","sql",
+                "mongodb","postgresql","mysql","git","spring","fastapi","flask","django",
+                "express","graphql","rest","linux","bash","c#","kotlin","swift"}
+TIER1_SKILLS = {"html","css","markdown","bootstrap","figma","canva","xml","json","jquery"}
+
+ARCH_KEYWORDS = {"websockets","kafka","docker","kubernetes","redis","ci/cd","grpc",
+                 "microservices","distributed","aws","gcp","azure","celery","rabbitmq"}
+
+ROLE_WEIGHTS = {"internship": 15, "freelance": 10, "tech_lead": 10, "member": 3}
+
+# Dynamic weights per B.Tech year
+WEIGHTS = {
+    2: {"hyg": 0.25, "real": 0.25, "comp": 0.20, "imp": 0.05, "prod": 0.10, "clar": 0.05, "dom": 0.05, "vel": 0.05},
+    3: {"hyg": 0.15, "real": 0.20, "comp": 0.25, "imp": 0.10, "prod": 0.15, "clar": 0.05, "dom": 0.05, "vel": 0.05},
+    4: {"hyg": 0.05, "real": 0.10, "comp": 0.30, "imp": 0.20, "prod": 0.15, "clar": 0.05, "dom": 0.05, "vel": 0.10},
+}
+
+
+def _skill_difficulty(skill: str) -> int:
+    s = skill.lower().strip()
+    if s in TIER3_SKILLS: return 10
+    if s in TIER2_SKILLS: return 5
+    return 2  # Tier 1 default
+
+
+def _project_tier(tech_keywords: list[str], arch_flag: bool) -> int:
+    """Classify a project into Tier 1/2/3 complexity score."""
+    if arch_flag:
+        return 100  # Tier 3
+    kw = {k.lower() for k in tech_keywords}
+    # Check for tier-3 signals in project tech
+    if kw & TIER3_SKILLS:
+        return 100
+    # Tier 2: has backend + database
+    has_backend = bool(kw & {"nodejs","node.js","express","django","flask","fastapi","spring","java","python","golang"})
+    has_db = bool(kw & {"mongodb","postgresql","mysql","sql","redis","firebase","supabase"})
+    if has_backend and has_db:
+        return 65
+    return 25  # Tier 1
 
 
 def compute_score(data: ResumeData) -> dict:
+    eps = 1.0
 
-    # ── 1. FORMATTING & STRUCTURAL INTEGRITY (max 15 pts) ──
-    structure_score = 10.0 if data.has_standard_sections else 3.0
-    formatting_score = round(structure_score, 2)
+    # ── 1. S_hygiene ──
+    P = max(data.total_page_count, 1)
+    links_lower = [l.lower() for l in data.extracted_links_array]
+    has_github = any("github" in l for l in links_lower)
+    has_linkedin = any("linkedin" in l for l in links_lower)
+    L_missing = (0 if has_github else 1) + (0 if has_linkedin else 1)
+    email = data.raw_email_string.lower()
+    E_generic = 1 if any(c.isdigit() for c in email.split("@")[0]) or \
+                     any(w in email for w in ["cool","coder","gamer","noob","pro","god","king","boss"]) else 0
+    mandatory = {"education", "projects", "skills"}
+    found = {h.lower() for h in data.detected_section_headers}
+    X_missing = len(mandatory - found)
+    S_hygiene = max(0, 100 - 50 * max(0, P - 1) - 15 * L_missing - 25 * E_generic - 20 * X_missing)
 
-    # ── 2. ACADEMIC BASELINE (max 20 pts) ──
-    gpa_scale = data.gpa_scale if data.gpa_scale > 0 else 10.0
-    gpa_ratio = min(data.gpa / gpa_scale, 1.0)
-    gpa_curve = gpa_ratio ** 2
-    theory_bonus = (0.5 * float(data.has_ds_algo)) + (0.5 * float(data.has_discrete_math))
-    degree_bonus = 1.0 if data.is_cs_related_degree else 0.6
-    academic_score = round(((0.6 * gpa_curve) + (0.25 * theory_bonus) + (0.15 * degree_bonus)) * 20, 2)
+    # ── 2. S_realization (updated: complexity-weighted) ──
+    declared = set(k.lower().strip() for k in data.skills_section_keywords)
+    corpus = (data.project_descriptions_text_corpus + " " + data.experience_descriptions_text_corpus).lower()
+    applied = {k for k in declared if k in corpus}
+    intersect = declared & applied
 
-    # ── 3. SKILL CORE DENSITY (max 20 pts) ──
-    n = len(data.tech_skills)
-    # logistic curve: optimal zone 6-12, plateau after 20, no bonus beyond 30
-    logistic = 1.0 / (1.0 + np.exp(-0.4 * (n - 10)))
-    # keyword stuffing penalty: if > 25 skills, apply soft penalty
-    stuffing_penalty = max(0.0, (n - 25) * 0.015)
-    skills_score = round(float(np.clip(logistic - stuffing_penalty, 0.0, 1.0)) * 20, 2)
+    sum_intersect = sum(math.log(_skill_difficulty(k) + 1) for k in intersect)
+    sum_declared = sum(math.log(_skill_difficulty(k) + 1) for k in declared) + eps
+    S_realization = (sum_intersect / sum_declared) * 100
 
-    # ── 4. PROJECT & EXECUTION QUALITY (max 20 pts) ──
-    raw_project = (data.complex_projects * 1.0) + (data.simple_projects * 0.4)
-    project_score_norm = min(raw_project / 3.0, 1.0)
-    low_level_penalty = 0.0
-    if data.complex_projects > 0:
-        candidate_langs = {s.lower().strip() for s in data.tech_skills}
-        if not bool(candidate_langs & LOW_LEVEL_LANGUAGES):
-            low_level_penalty = 0.15
-    project_score = round(float(np.clip(project_score_norm - low_level_penalty, 0.0, 1.0)) * 20, 2)
+    # ── 3. S_complexity (updated: max + log volume bonus) ──
+    alpha = 5.0
+    if data.project_titles:
+        tiers = []
+        for i, title in enumerate(data.project_titles):
+            tech = data.project_tech_keywords[i] if i < len(data.project_tech_keywords) else []
+            arch = data.architectural_regex_flags[i] if i < len(data.architectural_regex_flags) else False
+            tiers.append(_project_tier(tech, arch))
+        max_cj = max(tiers)
+        J = len(data.project_titles)
+        S_complexity = min(100, max_cj + alpha * math.log(J + 1))
+    else:
+        S_complexity = 0.0
 
-    # ── 5. QUANTITATIVE IMPACT & LANGUAGE (max 15 pts) ──
-    quant_norm = min(data.quantifiable_metrics_count / 6.0, 1.0)
-    action_norm = min(data.action_verb_bullet_count / 8.0, 1.0)
-    weak_penalty = min(data.weak_phrase_count * 0.08, 0.3)
-    impact_score = round(float(np.clip((0.6 * quant_norm + 0.4 * action_norm - weak_penalty), 0.0, 1.0)) * 15, 2)
+    # ── 4. S_impact (updated: log-dampened saturation) ──
+    beta = 12.0
+    values = data.regex_extracted_numeric_values or []
+    S_impact = min(100, beta * sum(math.log10(v + 1) for v in values if v > 0))
 
-    # ── 6. EXPERIENCE & CAREER VELOCITY (max 10 pts) ──
-    internship_val = 0.0
-    if data.has_internship:
-        internship_val = 0.7
-    if data.is_top_company_internship:
-        internship_val = 1.0
-    gap_penalty = min(data.employment_gap_months * 0.04, 0.3)
-    achievement_norm = min(np.log1p(data.competitive_achievements_count) / np.log1p(5), 1.0)
-    velocity_score = round(float(np.clip((0.6 * internship_val + 0.4 * float(achievement_norm) - gap_penalty), 0.0, 1.0)) * 10, 2)
+    # ── 5. S_production ──
+    J_total = max(data.project_count, 1)
+    J_code = len(data.code_repository_urls)
+    J_deploy = len(data.deployment_live_urls)
+    S_production = ((J_code + J_deploy) / (2 * J_total)) * 100
 
-    # ── GLOBAL AGGREGATION ──
-    raw_total = formatting_score + academic_score + skills_score + project_score + impact_score + velocity_score
+    # ── 6. S_clarity ──
+    omega = 15
+    bmap = data.buzzword_frequency_map or {}
+    deduction = omega * sum(math.log(count + 1) for count in bmap.values() if count > 0)
+    S_clarity = max(0, 100 - deduction)
 
-    # bonus: high quantifiable impact
-    bonus = 0.0
+    # ── 7. S_domain ──
+    unique_domains = len(set(data.domain_classification_vector))
+    total_skills = len(data.skills_section_keywords) + eps
+    S_domain = 100 * (1 - unique_domains / total_skills)
+    S_domain = max(0, min(100, S_domain))
 
-    final_score = float(np.clip(raw_total + bonus, 0.0, 100.0))
+    # ── 8. S_velocity ──
+    velocity_sum = sum(
+        e.get("months", 0) * ROLE_WEIGHTS.get(e.get("type", "member"), 3)
+        for e in data.experience_timeline_intervals
+    )
+    S_velocity = min(100, velocity_sum)
+
+    # ── FINAL SCORE ──
+    year = data.btech_year if data.btech_year in WEIGHTS else 3
+    W = WEIGHTS[year]
+
+    S_final = (
+        W["hyg"]  * S_hygiene +
+        W["real"] * S_realization +
+        W["comp"] * S_complexity +
+        W["imp"]  * S_impact +
+        W["prod"] * S_production +
+        W["clar"] * S_clarity +
+        W["dom"]  * S_domain +
+        W["vel"]  * S_velocity
+    )
+    S_final = round(min(100, max(0, S_final)), 2)
 
     return {
-        "final_score": round(final_score, 2),
-        "formatting_score": formatting_score,
-        "academic_score": academic_score,
-        "skills_score": skills_score,
-        "project_score": project_score,
-        "impact_score": impact_score,
-        "velocity_score": velocity_score,
-        "bonus": bonus,
-        "gpa_curve": round(float(gpa_curve), 4),
-        "theory_score": round(theory_bonus, 4),
-        "internship_flag": internship_val,
-        "achievement_score": round(float(achievement_norm), 4),
-        "low_level_penalty": low_level_penalty,
-        "gap_penalty": round(gap_penalty, 4),
-        "stuffing_penalty": round(float(stuffing_penalty), 4),
+        "final_score": S_final,
+        "btech_year": year,
+        "weights": W,
+        "S_hygiene": round(S_hygiene, 2),
+        "S_realization": round(S_realization, 2),
+        "S_complexity": round(S_complexity, 2),
+        "S_impact": round(S_impact, 2),
+        "S_production": round(S_production, 2),
+        "S_clarity": round(S_clarity, 2),
+        "S_domain": round(S_domain, 2),
+        "S_velocity": round(S_velocity, 2),
+        # debug helpers
+        "L_missing": L_missing,
+        "E_generic": E_generic,
+        "X_missing": X_missing,
+        "buzzwords_found": bmap,
     }
