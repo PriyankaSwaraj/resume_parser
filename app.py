@@ -18,21 +18,23 @@ st.markdown("""
     .main-header {
         font-size: 2rem;
         font-weight: 800;
-        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        background: linear-gradient(135deg, #16a34a, #4ade80);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         margin-bottom: 0.2rem;
     }
     .flag-box {
-        background: #1e1e2e;
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
         border-radius: 10px;
         padding: 0.6rem 1rem;
         margin: 0.3rem 0;
         font-size: 0.95rem;
+        color: #14532d;
     }
     div[data-testid="metric-container"] {
-        background: #1a1a2e;
-        border: 1px solid #2d2d3f;
+        background: #f0fdf4;
+        border: 1px solid #86efac;
         border-radius: 10px;
         padding: 0.5rem 1rem;
     }
@@ -114,10 +116,10 @@ if dashboard == "📊 Dashboard 1: Score":
     final_score = score_data["final_score"]
 
     if final_score >= 75:
-        score_color = "#22c55e"
+        score_color = "#16a34a"
         grade_label = "🏆 Strong Profile"
     elif final_score >= 55:
-        score_color = "#6366f1"
+        score_color = "#4ade80"
         grade_label = "✅ Good Profile"
     elif final_score >= 35:
         score_color = "#f59e0b"
@@ -132,8 +134,8 @@ if dashboard == "📊 Dashboard 1: Score":
 
     with col_score:
         st.markdown(f"""
-        <div style="text-align:center; background:#1a1a2e; border-radius:16px; padding:2rem 1rem; border: 2px solid {score_color};">
-            <div style="font-size:0.9rem; color:#9ca3af; letter-spacing:0.1em; text-transform:uppercase;">ATS Score</div>
+        <div style="text-align:center; background:#f0fdf4; border-radius:16px; padding:2rem 1rem; border: 2px solid {score_color};">
+            <div style="font-size:0.9rem; color:#4b5563; letter-spacing:0.1em; text-transform:uppercase;">ATS Score</div>
             <div style="font-size:4rem; font-weight:900; color:{score_color}; line-height:1.1;">{final_score}</div>
             <div style="font-size:0.8rem; color:#6b7280;">/ 100</div>
             <div style="margin-top:0.5rem; font-size:1rem; font-weight:600; color:{score_color};">{grade_label}</div>
@@ -162,7 +164,7 @@ if dashboard == "📊 Dashboard 1: Score":
         ]
         for label, present in flags:
             icon = "✅" if present else "❌"
-            bg = "#162032" if present else "#1f1220"
+            bg = "#dcfce7" if present else "#fef2f2"
             st.markdown(f'<div class="flag-box" style="background:{bg};">{icon} {label}</div>', unsafe_allow_html=True)
 
     st.markdown("---")
@@ -220,7 +222,7 @@ if dashboard == "📊 Dashboard 1: Score":
         st.markdown("---")
         st.markdown("### 🛠️ Detected Skills")
         skill_html = " ".join([
-            f'<span style="background:#2d2d4e; padding:0.25rem 0.6rem; border-radius:20px; font-size:0.82rem; margin:0.2rem; display:inline-block;">{s}</span>'
+            f'<span style="background:#dcfce7; color:#14532d; padding:0.25rem 0.6rem; border-radius:20px; font-size:0.82rem; margin:0.2rem; display:inline-block;">{s}</span>'
             for s in resume_data.tech_skills
         ])
         st.markdown(skill_html, unsafe_allow_html=True)
@@ -289,4 +291,3 @@ elif dashboard == "🗂️ Dashboard 2: Resume Data":
         mime="application/json",
         use_container_width=True,
     )
-
