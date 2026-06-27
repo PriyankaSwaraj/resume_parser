@@ -7,7 +7,7 @@ import io
 from utils import extract_resume_data, compute_score
 
 st.set_page_config(
-    page_title="CS Resume Scorer",
+    page_title=" Resume Scorer",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -44,7 +44,7 @@ st.markdown("""
 api_key = os.environ.get("GROQ_API_KEY", "")
 
 with st.sidebar:
-    st.markdown("## 🎓 CS Resume Scorer")
+    st.markdown("## 🎓  Resume Scorer")
     st.divider()
     uploaded_file = st.file_uploader("Upload Resume PDF", type=["pdf"])
     st.divider()
@@ -54,10 +54,7 @@ with st.sidebar:
         index=0,
     )
     st.divider()
-    if st.button("🗑️ Clear", use_container_width=True):
-        for key in ["resume_data", "score_data", "raw_text", "processed_file"]:
-            st.session_state.pop(key, None)
-        st.rerun()
+    
 
 
 def extract_pdf_text(file_bytes: bytes) -> str:
