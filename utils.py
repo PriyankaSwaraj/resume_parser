@@ -3,9 +3,6 @@ import math
 from groq import Groq
 from pydantic import BaseModel, Field
 
-# ─────────────────────────────────────────────────────────────
-#  DATA MODEL  — every field the LLM must extract
-# ─────────────────────────────────────────────────────────────
 
 class ResumeData(BaseModel):
     # ── S_hygiene ──
@@ -48,9 +45,7 @@ class ResumeData(BaseModel):
     btech_year: int = Field(default=3)   # 2, 3, or 4
 
 
-# ─────────────────────────────────────────────────────────────
 #  SYSTEM PROMPT
-# ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a precise resume data extractor for B.Tech student resumes.
 Return ONLY a valid JSON object — no markdown, no explanation, no extra keys.
@@ -111,10 +106,7 @@ candidate_name (string): Full name of the candidate.
 btech_year (int): 2, 3, or 4. Infer from graduation year or year of study mentioned. Default 3.
 """
 
-
-# ─────────────────────────────────────────────────────────────
 #  LLM EXTRACTION
-# ─────────────────────────────────────────────────────────────
 
 def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
     client = Groq(api_key=api_key)
@@ -133,17 +125,12 @@ def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
     return ResumeData(**parsed)
 
 
-# ─────────────────────────────────────────────────────────────
-#  SCORING ENGINE  — pure math, no LLM
-# ─────────────────────────────────────────────────────────────
-
 NOISE_WORDS = {
     "passionate", "detail-oriented", "synergy", "motivated", "hardworking",
     "team player", "go-getter", "self-starter", "results-driven", "dynamic",
     "innovative", "proactive"
 }
 
-# Skill difficulty tiers for S_realization (updated formula)
 TIER3_SKILLS = {"golang","go","docker","kubernetes","redis","kafka","grpc","aws","gcp","azure",
                 "tensorflow","pytorch","spark","hadoop","elasticsearch","rabbitmq","celery",
                 "websockets","microservices","ci/cd","jenkins","terraform"}
@@ -157,7 +144,6 @@ ARCH_KEYWORDS = {"websockets","kafka","docker","kubernetes","redis","ci/cd","grp
 
 ROLE_WEIGHTS = {"internship": 15, "freelance": 10, "tech_lead": 10, "member": 3}
 
-# Dynamic weights per B.Tech year
 WEIGHTS = {
     2: {"hyg": 0.25, "real": 0.25, "comp": 0.20, "imp": 0.05, "prod": 0.10, "clar": 0.05, "dom": 0.05, "vel": 0.05},
     3: {"hyg": 0.15, "real": 0.20, "comp": 0.25, "imp": 0.10, "prod": 0.15, "clar": 0.05, "dom": 0.05, "vel": 0.05},
