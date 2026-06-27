@@ -155,23 +155,23 @@ def _skill_difficulty(skill: str) -> int:
     s = skill.lower().strip()
     if s in TIER3_SKILLS: return 10
     if s in TIER2_SKILLS: return 5
-    return 2  # Tier 1 default
+    return 2  
 
 
 def _project_tier(tech_keywords: list[str], arch_flag: bool) -> int:
     """Classify a project into Tier 1/2/3 complexity score."""
     if arch_flag:
-        return 100  # Tier 3
+        return 100 
     kw = {k.lower() for k in tech_keywords}
-    # Check for tier-3 signals in project tech
+    
     if kw & TIER3_SKILLS:
         return 100
-    # Tier 2: has backend + database
+    
     has_backend = bool(kw & {"nodejs","node.js","express","django","flask","fastapi","spring","java","python","golang"})
     has_db = bool(kw & {"mongodb","postgresql","mysql","sql","redis","firebase","supabase"})
     if has_backend and has_db:
         return 65
-    return 25  # Tier 1
+    return 25 
 
 
 def compute_score(data: ResumeData) -> dict:
@@ -191,7 +191,7 @@ def compute_score(data: ResumeData) -> dict:
     X_missing = len(mandatory - found)
     S_hygiene = max(0, 100 - 50 * max(0, P - 1) - 15 * L_missing - 25 * E_generic - 20 * X_missing)
 
-    # ── 2. S_realization (updated: complexity-weighted) ──
+    # ── 2. S_realization 
     declared = set(k.lower().strip() for k in data.skills_section_keywords)
     corpus = (data.project_descriptions_text_corpus + " " + data.experience_descriptions_text_corpus).lower()
     applied = {k for k in declared if k in corpus}
@@ -201,7 +201,7 @@ def compute_score(data: ResumeData) -> dict:
     sum_declared = sum(math.log(_skill_difficulty(k) + 1) for k in declared) + eps
     S_realization = (sum_intersect / sum_declared) * 100
 
-    # ── 3. S_complexity (updated: max + log volume bonus) ──
+    # ── 3. S_complexity 
     alpha = 5.0
     if data.project_titles:
         tiers = []
@@ -215,7 +215,7 @@ def compute_score(data: ResumeData) -> dict:
     else:
         S_complexity = 0.0
 
-    # ── 4. S_impact (updated: log-dampened saturation) ──
+    # ── 4. S_impact 
     beta = 12.0
     values = data.regex_extracted_numeric_values or []
     S_impact = min(100, beta * sum(math.log10(v + 1) for v in values if v > 0))
