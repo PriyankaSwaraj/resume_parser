@@ -123,10 +123,6 @@ def compute_score(data: ResumeData) -> dict:
 
     # bonus: high quantifiable impact
     bonus = 0.0
-    if data.quantifiable_metrics_count >= 5:
-        bonus = 3.0
-    elif data.quantifiable_metrics_count >= 3:
-        bonus = 1.5
 
     final_score = float(np.clip(raw_total + bonus, 0.0, 100.0))
 
