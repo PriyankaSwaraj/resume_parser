@@ -54,10 +54,6 @@ with st.sidebar:
         index=0,
     )
     st.divider()
-    if st.button("🗑️ Clear", use_container_width=True):
-        for key in ["resume_data", "score_data", "raw_text", "processed_file"]:
-            st.session_state.pop(key, None)
-        st.rerun()
 
 
 def extract_pdf_text(file_bytes: bytes) -> str:
