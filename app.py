@@ -205,8 +205,6 @@ if dashboard == "📊 Dashboard 1: Score":
     m2.metric("Bonus", f"+{score_data['bonus']}")
     m3.metric("Final Score", f"{score_data['final_score']} / 100")
 
-    if score_data["bonus"] > 0:
-        st.success(f"🎁 +{score_data['bonus']} bonus points for {resume_data.quantifiable_metrics_count} quantifiable impact bullets.")
     if score_data["low_level_penalty"] > 0:
         st.warning("⚠️ Complex projects detected but no low-level language (C, C++, Rust, Java, Go) found — project score reduced.")
     if score_data["gap_penalty"] > 0:
