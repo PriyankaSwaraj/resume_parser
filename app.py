@@ -108,9 +108,8 @@ if "resume_data" not in st.session_state or "score_data" not in st.session_state
 resume_data = st.session_state["resume_data"]
 score_data = st.session_state["score_data"]
 
-# ─────────────────────────────────────────────
 # Dashboard 1: Score
-# ─────────────────────────────────────────────
+
 if dashboard == "📊 Dashboard 1: Score":
 
     final_score = score_data.get("final_score", 0)
@@ -241,8 +240,6 @@ if dashboard == "📊 Dashboard 1: Score":
         ])
         st.markdown(domain_html, unsafe_allow_html=True)
 
-
-# ─────────────────────────────────────────────
 # Dashboard 2: Resume Data
 # ─────────────────────────────────────────────
 elif dashboard == "🗂️ Dashboard 2: Resume Data":
