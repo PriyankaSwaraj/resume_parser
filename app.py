@@ -93,7 +93,7 @@ if uploaded_file is not None:
     file_id = hash(file_bytes)
     if st.session_state.get("processed_file") != file_id:
         if not api_key:
-            st.error("⚠️ `GROQ_API_KEY` environment variable is not set. Run: `export GROQ_API_KEY=gsk_...`")
+            st.error("⚠️ `GROQ_API_KEY` environment variable is not set.")
             st.stop()
         st.session_state["processed_file"] = file_id
         run_pipeline(file_bytes, api_key)
@@ -113,7 +113,8 @@ score_data = st.session_state["score_data"]
 # ─────────────────────────────────────────────
 if dashboard == "📊 Dashboard 1: Score":
 
-    final_score = score_data["final_score"]
+    final_score = score_data.get("final_score", 0)
+    btech_year = score_data.get("btech_year", 3)
 
     if final_score >= 75:
         score_color = "#16a34a"
@@ -139,14 +140,14 @@ if dashboard == "📊 Dashboard 1: Score":
             <div style="font-size:4rem; font-weight:900; color:{score_color}; line-height:1.1;">{final_score}</div>
             <div style="font-size:0.8rem; color:#6b7280;">/ 100</div>
             <div style="margin-top:0.5rem; font-size:1rem; font-weight:600; color:{score_color};">{grade_label}</div>
-            <div style="margin-top:0.4rem; font-size:0.8rem; color:#6b7280;">Year {score_data['btech_year']} B.Tech weights applied</div>
+            <div style="margin-top:0.4rem; font-size:0.8rem; color:#6b7280;">Year {btech_year} B.Tech weights applied</div>
         </div>
         """, unsafe_allow_html=True)
 
     with col_info:
         st.markdown("#### 👤 Candidate")
         st.metric("Name", resume_data.candidate_name)
-        st.metric("B.Tech Year", f"Year {resume_data.btech_year}")
+        st.metric("B.Tech Year", f"Year {btech_year}")
         st.metric("Total Projects", resume_data.project_count)
         st.metric("Skills Listed", len(resume_data.skills_section_keywords))
 
@@ -155,9 +156,9 @@ if dashboard == "📊 Dashboard 1: Score":
         flags = [
             ("GitHub link present", any("github" in l.lower() for l in resume_data.extracted_links_array)),
             ("LinkedIn link present", any("linkedin" in l.lower() for l in resume_data.extracted_links_array)),
-            ("Professional email", score_data["E_generic"] == 0),
+            ("Professional email", score_data.get("E_generic", 0) == 0),
             ("Single page resume", resume_data.total_page_count == 1),
-            ("Standard sections found", score_data["X_missing"] == 0),
+            ("Standard sections found", score_data.get("X_missing", 0) == 0),
             ("Has live deployments", len(resume_data.deployment_live_urls) > 0),
             ("Has metric bullets", resume_data.metric_regex_match_count > 0),
             ("No buzzwords found", len(resume_data.buzzword_frequency_map) == 0),
@@ -170,20 +171,20 @@ if dashboard == "📊 Dashboard 1: Score":
     st.markdown("---")
     st.markdown("### 📋 Score Breakdown (8 Components)")
 
-    W = score_data["weights"]
+    W = score_data.get("weights", {"hyg":0.15,"real":0.20,"comp":0.25,"imp":0.10,"prod":0.15,"clar":0.05,"dom":0.05,"vel":0.05})
     components = [
-        ("🏗️ Structural Hygiene",    "S_hygiene",     W["hyg"],  "Page count, links, email, section headers."),
-        ("🔗 Tech-Stack Realization", "S_realization", W["real"], "Skills listed vs. skills actually used in projects."),
-        ("⚙️ Project Complexity",    "S_complexity",  W["comp"], "Architectural tier of your best project + volume bonus."),
-        ("📈 Quantifiable Impact",   "S_impact",      W["imp"],  "Log-weighted magnitude of metrics in your bullet points."),
-        ("🚀 Production Readiness",  "S_production",  W["prod"], "GitHub repos + live deployment links per project."),
-        ("🔇 Linguistic Clarity",    "S_clarity",     W["clar"], "Penalises buzzwords like 'passionate', 'hardworking'."),
-        ("🎯 Domain Specialisation", "S_domain",      W["dom"],  "Rewards focus — fewer domains across more skills = better."),
-        ("⏱️ Chronological Velocity","S_velocity",    W["vel"],  "Internships, freelance, club roles weighted by duration."),
+        ("🏗️ Structural Hygiene",     "S_hygiene",     W.get("hyg", 0.15),  "Page count, links, email, section headers."),
+        ("🔗 Tech-Stack Realization",  "S_realization", W.get("real", 0.20), "Skills listed vs. skills actually used in projects."),
+        ("⚙️ Project Complexity",     "S_complexity",  W.get("comp", 0.25), "Architectural tier of your best project + volume bonus."),
+        ("📈 Quantifiable Impact",    "S_impact",      W.get("imp", 0.10),  "Log-weighted magnitude of metrics in your bullet points."),
+        ("🚀 Production Readiness",   "S_production",  W.get("prod", 0.15), "GitHub repos + live deployment links per project."),
+        ("🔇 Linguistic Clarity",     "S_clarity",     W.get("clar", 0.05), "Penalises buzzwords like 'passionate', 'hardworking'."),
+        ("🎯 Domain Specialisation",  "S_domain",      W.get("dom", 0.05),  "Rewards focus — fewer domains across more skills = better."),
+        ("⏱️ Chronological Velocity", "S_velocity",    W.get("vel", 0.05),  "Internships, freelance, club roles weighted by duration."),
     ]
 
     for label, key, weight, hint in components:
-        raw = score_data[key]
+        raw = score_data.get(key, 0)
         weighted = round(raw * weight, 2)
         c1, c2, c3 = st.columns([3, 0.8, 0.8])
         with c1:
@@ -201,27 +202,26 @@ if dashboard == "📊 Dashboard 1: Score":
     cols = st.columns(len(components) + 1)
     for i, (label, key, weight, _) in enumerate(components):
         short = label.split()[1]
-        cols[i].metric(short, f"{round(score_data[key] * weight, 1)}")
+        cols[i].metric(short, f"{round(score_data.get(key, 0) * weight, 1)}")
     cols[-1].metric("🏁 Final", f"{final_score} / 100")
 
-    # Warnings
     st.markdown("---")
-    if score_data["L_missing"] > 0:
-        st.warning(f"⚠️ {score_data['L_missing']} primary link(s) missing — add GitHub and LinkedIn.")
-    if score_data["E_generic"] == 1:
+    if score_data.get("L_missing", 0) > 0:
+        st.warning(f"⚠️ {score_data.get('L_missing')} primary link(s) missing — add GitHub and LinkedIn.")
+    if score_data.get("E_generic", 0) == 1:
         st.warning("⚠️ Email appears unprofessional (contains numbers or slang). Use firstname.lastname@gmail.com format.")
-    if score_data["X_missing"] > 0:
-        st.warning(f"⚠️ {score_data['X_missing']} mandatory section(s) missing — ensure Education, Projects, and Skills headings are present.")
+    if score_data.get("X_missing", 0) > 0:
+        st.warning(f"⚠️ {score_data.get('X_missing')} mandatory section(s) missing — ensure Education, Projects, and Skills headings are present.")
     if resume_data.total_page_count > 1:
         st.warning(f"⚠️ Resume is {resume_data.total_page_count} pages — B.Tech resumes should be 1 page.")
-    if score_data["buzzwords_found"]:
-        words = ", ".join(f"'{w}' x{c}" for w, c in score_data["buzzwords_found"].items())
+    if score_data.get("buzzwords_found"):
+        words = ", ".join(f"'{w}' x{c}" for w, c in score_data.get("buzzwords_found", {}).items())
         st.warning(f"⚠️ Buzzwords detected: {words}. Replace with technical achievements.")
-    if score_data["S_realization"] < 50:
+    if score_data.get("S_realization", 100) < 50:
         st.warning("⚠️ Many skills listed are not found in project descriptions — only list skills you have actually used.")
-    if score_data["S_complexity"] < 65:
+    if score_data.get("S_complexity", 100) < 65:
         st.warning("⚠️ No Tier 3 project detected. Add a system using Docker, Redis, Kafka, WebSockets, or cloud infra.")
-    if score_data["S_production"] < 50:
+    if score_data.get("S_production", 100) < 50:
         st.warning("⚠️ Low production score — add GitHub links and live deployment URLs for each project.")
 
     if resume_data.skills_section_keywords:
@@ -286,16 +286,16 @@ elif dashboard == "🗂️ Dashboard 2: Resume Data":
             "timeline": resume_data.experience_timeline_intervals,
         },
         "scores": {
-            "final": score_data["final_score"],
-            "year_weights_applied": score_data["btech_year"],
-            "S_hygiene": score_data["S_hygiene"],
-            "S_realization": score_data["S_realization"],
-            "S_complexity": score_data["S_complexity"],
-            "S_impact": score_data["S_impact"],
-            "S_production": score_data["S_production"],
-            "S_clarity": score_data["S_clarity"],
-            "S_domain": score_data["S_domain"],
-            "S_velocity": score_data["S_velocity"],
+            "final": score_data.get("final_score", 0),
+            "year_weights_applied": score_data.get("btech_year", 3),
+            "S_hygiene": score_data.get("S_hygiene", 0),
+            "S_realization": score_data.get("S_realization", 0),
+            "S_complexity": score_data.get("S_complexity", 0),
+            "S_impact": score_data.get("S_impact", 0),
+            "S_production": score_data.get("S_production", 0),
+            "S_clarity": score_data.get("S_clarity", 0),
+            "S_domain": score_data.get("S_domain", 0),
+            "S_velocity": score_data.get("S_velocity", 0),
         }
     }
 
