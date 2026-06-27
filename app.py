@@ -7,7 +7,7 @@ import io
 from utils import extract_resume_data, compute_score
 
 st.set_page_config(
-    page_title=" Resume Scorer",
+    page_title="CS Resume Scorer",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -44,7 +44,7 @@ st.markdown("""
 api_key = os.environ.get("GROQ_API_KEY", "")
 
 with st.sidebar:
-    st.markdown("## 🎓  Resume Scorer")
+    st.markdown("## 🎓 CS Resume Scorer")
     st.divider()
     uploaded_file = st.file_uploader("Upload Resume PDF", type=["pdf"])
     st.divider()
@@ -54,7 +54,10 @@ with st.sidebar:
         index=0,
     )
     st.divider()
-    
+    if st.button("🗑️ Clear", use_container_width=True):
+        for key in ["resume_data", "score_data", "raw_text", "processed_file"]:
+            st.session_state.pop(key, None)
+        st.rerun()
 
 
 def extract_pdf_text(file_bytes: bytes) -> str:
@@ -73,16 +76,17 @@ def run_pipeline(file_bytes: bytes, api_key: str):
     if not raw_text:
         st.error("Could not read this PDF. Make sure it is not a scanned image.")
         return
-    with st.spinner("Analysing resume..."):
+    with st.spinner("Extracting resume data with LLM..."):
         resume_data = extract_resume_data(raw_text, api_key)
-    score_data = compute_score(resume_data)
+    with st.spinner("Computing scores..."):
+        score_data = compute_score(resume_data)
     st.session_state["raw_text"] = raw_text
     st.session_state["resume_data"] = resume_data
     st.session_state["score_data"] = score_data
 
 
 st.markdown('<p class="main-header">🎓 CS Resume Scorer</p>', unsafe_allow_html=True)
-st.caption("Upload your resume PDF and get an instant ATS score based on your academics, projects, and experience.")
+st.caption("Upload your resume PDF and get an instant score across 8 engineering dimensions.")
 
 if uploaded_file is not None:
     file_bytes = uploaded_file.read()
@@ -103,7 +107,6 @@ if "resume_data" not in st.session_state or "score_data" not in st.session_state
 
 resume_data = st.session_state["resume_data"]
 score_data = st.session_state["score_data"]
-
 
 # ─────────────────────────────────────────────
 # Dashboard 1: Score
@@ -132,32 +135,32 @@ if dashboard == "📊 Dashboard 1: Score":
     with col_score:
         st.markdown(f"""
         <div style="text-align:center; background:#f0fdf4; border-radius:16px; padding:2rem 1rem; border: 2px solid {score_color};">
-            <div style="font-size:0.9rem; color:#4b5563; letter-spacing:0.1em; text-transform:uppercase;">ATS Score</div>
+            <div style="font-size:0.9rem; color:#4b5563; letter-spacing:0.1em; text-transform:uppercase;">Final Score</div>
             <div style="font-size:4rem; font-weight:900; color:{score_color}; line-height:1.1;">{final_score}</div>
             <div style="font-size:0.8rem; color:#6b7280;">/ 100</div>
             <div style="margin-top:0.5rem; font-size:1rem; font-weight:600; color:{score_color};">{grade_label}</div>
+            <div style="margin-top:0.4rem; font-size:0.8rem; color:#6b7280;">Year {score_data['btech_year']} B.Tech weights applied</div>
         </div>
         """, unsafe_allow_html=True)
 
     with col_info:
         st.markdown("#### 👤 Candidate")
-        gpa_display = f"{resume_data.gpa} / {resume_data.gpa_scale}" if resume_data.gpa > 0 else "Not listed"
-        st.metric("Name", resume_data.name)
-        st.metric("GPA", gpa_display)
-        st.metric("Degree", resume_data.degree if resume_data.degree else "Not listed")
-        st.metric("Total Projects", resume_data.complex_projects + resume_data.simple_projects)
+        st.metric("Name", resume_data.candidate_name)
+        st.metric("B.Tech Year", f"Year {resume_data.btech_year}")
+        st.metric("Total Projects", resume_data.project_count)
+        st.metric("Skills Listed", len(resume_data.skills_section_keywords))
 
     with col_flags:
-        st.markdown("#### 🚩 Key Signals")
+        st.markdown("#### 🔍 Quick Signals")
         flags = [
-            ("Standard resume sections", resume_data.has_standard_sections),
-            ("CS related degree", resume_data.is_cs_related_degree),
-            ("Data Structures & Algorithms", resume_data.has_ds_algo),
-            ("Discrete Math", resume_data.has_discrete_math),
-            ("Has internship", resume_data.has_internship),
-            ("Top company internship", resume_data.is_top_company_internship),
-            ("Competitive achievements", resume_data.competitive_achievements_count > 0),
-            ("Quantifiable impact bullets", resume_data.quantifiable_metrics_count > 0),
+            ("GitHub link present", any("github" in l.lower() for l in resume_data.extracted_links_array)),
+            ("LinkedIn link present", any("linkedin" in l.lower() for l in resume_data.extracted_links_array)),
+            ("Professional email", score_data["E_generic"] == 0),
+            ("Single page resume", resume_data.total_page_count == 1),
+            ("Standard sections found", score_data["X_missing"] == 0),
+            ("Has live deployments", len(resume_data.deployment_live_urls) > 0),
+            ("Has metric bullets", resume_data.metric_regex_match_count > 0),
+            ("No buzzwords found", len(resume_data.buzzword_frequency_map) == 0),
         ]
         for label, present in flags:
             icon = "✅" if present else "❌"
@@ -165,64 +168,78 @@ if dashboard == "📊 Dashboard 1: Score":
             st.markdown(f'<div class="flag-box" style="background:{bg};">{icon} {label}</div>', unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("### 📋 Score Breakdown")
+    st.markdown("### 📋 Score Breakdown (8 Components)")
 
+    W = score_data["weights"]
     components = [
-        ("🗂️ Formatting & Structure", score_data["formatting_score"], 15,
-         "Are standard sections present? Can the ATS read your resume cleanly?"),
-        ("🎓 Academics", score_data["academic_score"], 20,
-         "GPA, CS degree, and theory knowledge (DSA, Discrete Math)."),
-        ("🛠️ Skills", score_data["skills_score"], 20,
-         "Breadth of your tech stack. Too few or too many both hurt."),
-        ("💻 Projects", score_data["project_score"], 20,
-         "Complex projects count more. Claiming hard projects without relevant languages gets penalised."),
-        ("📈 Impact & Language", score_data["impact_score"], 15,
-         "Numbers and percentages in bullets. Strong action verbs. Weak phrases reduce this score."),
-        ("🏢 Experience", score_data["velocity_score"], 10,
-         "Internship quality, competition wins, and career progression."),
+        ("🏗️ Structural Hygiene",    "S_hygiene",     W["hyg"],  "Page count, links, email, section headers."),
+        ("🔗 Tech-Stack Realization", "S_realization", W["real"], "Skills listed vs. skills actually used in projects."),
+        ("⚙️ Project Complexity",    "S_complexity",  W["comp"], "Architectural tier of your best project + volume bonus."),
+        ("📈 Quantifiable Impact",   "S_impact",      W["imp"],  "Log-weighted magnitude of metrics in your bullet points."),
+        ("🚀 Production Readiness",  "S_production",  W["prod"], "GitHub repos + live deployment links per project."),
+        ("🔇 Linguistic Clarity",    "S_clarity",     W["clar"], "Penalises buzzwords like 'passionate', 'hardworking'."),
+        ("🎯 Domain Specialisation", "S_domain",      W["dom"],  "Rewards focus — fewer domains across more skills = better."),
+        ("⏱️ Chronological Velocity","S_velocity",    W["vel"],  "Internships, freelance, club roles weighted by duration."),
     ]
 
-    for label, score, max_score, hint in components:
-        pct = score / max_score
-        c1, c2 = st.columns([3, 1])
+    for label, key, weight, hint in components:
+        raw = score_data[key]
+        weighted = round(raw * weight, 2)
+        c1, c2, c3 = st.columns([3, 0.8, 0.8])
         with c1:
-            st.markdown(f"**{label}**")
+            st.markdown(f"**{label}** `weight: {int(weight*100)}%`")
             st.caption(hint)
-            st.progress(pct, text=f"{score} / {max_score}")
+            st.progress(min(raw / 100, 1.0), text=f"{raw} / 100")
         with c2:
-            st.metric("", f"{score}/{max_score}")
+            st.metric("Raw", f"{raw}")
+        with c3:
+            st.metric("Weighted", f"{weighted}")
         st.markdown("")
 
     st.markdown("---")
     st.markdown("### 🧮 Final Score")
+    cols = st.columns(len(components) + 1)
+    for i, (label, key, weight, _) in enumerate(components):
+        short = label.split()[1]
+        cols[i].metric(short, f"{round(score_data[key] * weight, 1)}")
+    cols[-1].metric("🏁 Final", f"{final_score} / 100")
 
-    m1, m2, m3 = st.columns(3)
-    raw_total = sum([score_data["formatting_score"], score_data["academic_score"],
-                     score_data["skills_score"], score_data["project_score"],
-                     score_data["impact_score"], score_data["velocity_score"]])
-    m1.metric("Base Score", f"{round(raw_total, 1)}")
-    m2.metric("Bonus", f"+{score_data['bonus']}")
-    m3.metric("Final Score", f"{score_data['final_score']} / 100")
+    # Warnings
+    st.markdown("---")
+    if score_data["L_missing"] > 0:
+        st.warning(f"⚠️ {score_data['L_missing']} primary link(s) missing — add GitHub and LinkedIn.")
+    if score_data["E_generic"] == 1:
+        st.warning("⚠️ Email appears unprofessional (contains numbers or slang). Use firstname.lastname@gmail.com format.")
+    if score_data["X_missing"] > 0:
+        st.warning(f"⚠️ {score_data['X_missing']} mandatory section(s) missing — ensure Education, Projects, and Skills headings are present.")
+    if resume_data.total_page_count > 1:
+        st.warning(f"⚠️ Resume is {resume_data.total_page_count} pages — B.Tech resumes should be 1 page.")
+    if score_data["buzzwords_found"]:
+        words = ", ".join(f"'{w}' x{c}" for w, c in score_data["buzzwords_found"].items())
+        st.warning(f"⚠️ Buzzwords detected: {words}. Replace with technical achievements.")
+    if score_data["S_realization"] < 50:
+        st.warning("⚠️ Many skills listed are not found in project descriptions — only list skills you have actually used.")
+    if score_data["S_complexity"] < 65:
+        st.warning("⚠️ No Tier 3 project detected. Add a system using Docker, Redis, Kafka, WebSockets, or cloud infra.")
+    if score_data["S_production"] < 50:
+        st.warning("⚠️ Low production score — add GitHub links and live deployment URLs for each project.")
 
-    if score_data["low_level_penalty"] > 0:
-        st.warning("⚠️ Complex projects detected but no low-level language (C, C++, Rust, Java, Go) found — project score reduced.")
-    if score_data["gap_penalty"] > 0:
-        st.warning(f"⚠️ Employment gap of {resume_data.employment_gap_months} months detected — experience score reduced.")
-    if resume_data.weak_phrase_count > 0:
-        st.warning(f"⚠️ {resume_data.weak_phrase_count} weak phrase(s) found ('Responsible for...', 'Helped with...'). Replace with strong action verbs.")
-    if score_data["stuffing_penalty"] > 0:
-        st.warning("⚠️ Too many skills listed — ATS may flag this as keyword stuffing. Keep to 15–20 quality skills.")
-    if not resume_data.has_standard_sections:
-        st.error("❌ Standard sections (Education, Projects, Skills, Experience) not clearly detected. Use standard headings.")
-
-    if resume_data.tech_skills:
+    if resume_data.skills_section_keywords:
         st.markdown("---")
         st.markdown("### 🛠️ Detected Skills")
         skill_html = " ".join([
             f'<span style="background:#dcfce7; color:#14532d; padding:0.25rem 0.6rem; border-radius:20px; font-size:0.82rem; margin:0.2rem; display:inline-block;">{s}</span>'
-            for s in resume_data.tech_skills
+            for s in resume_data.skills_section_keywords
         ])
         st.markdown(skill_html, unsafe_allow_html=True)
+
+    if resume_data.domain_classification_vector:
+        st.markdown("**Detected Domains:**")
+        domain_html = " ".join([
+            f'<span style="background:#bbf7d0; color:#14532d; padding:0.25rem 0.8rem; border-radius:20px; font-size:0.82rem; margin:0.2rem; display:inline-block; font-weight:600;">{d}</span>'
+            for d in set(resume_data.domain_classification_vector)
+        ])
+        st.markdown(domain_html, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
@@ -230,51 +247,55 @@ if dashboard == "📊 Dashboard 1: Score":
 # ─────────────────────────────────────────────
 elif dashboard == "🗂️ Dashboard 2: Resume Data":
 
-    st.markdown("### 🗂️ Resume Data")
-    st.caption("Here are all the details we picked up from your resume.")
+    st.markdown("### 🗂️ Extracted Resume Data")
+    st.caption("Raw data extracted by the LLM — fed directly into the scoring formulas.")
 
     structured_output = {
         "candidate": {
-            "name": resume_data.name,
-            "degree": resume_data.degree,
-            "gpa": resume_data.gpa,
-            "gpa_scale": resume_data.gpa_scale,
-            "is_cs_related_degree": resume_data.is_cs_related_degree,
+            "name": resume_data.candidate_name,
+            "btech_year": resume_data.btech_year,
         },
-        "academics": {
-            "has_ds_algo": resume_data.has_ds_algo,
-            "has_discrete_math": resume_data.has_discrete_math,
-        },
-        "projects": {
-            "complex": resume_data.complex_projects,
-            "simple": resume_data.simple_projects,
-            "total": resume_data.complex_projects + resume_data.simple_projects,
+        "hygiene": {
+            "total_page_count": resume_data.total_page_count,
+            "extracted_links": resume_data.extracted_links_array,
+            "email": resume_data.raw_email_string,
+            "section_headers": resume_data.detected_section_headers,
         },
         "skills": {
-            "tech_stack": resume_data.tech_skills,
-            "count": len(resume_data.tech_skills),
+            "section_keywords": resume_data.skills_section_keywords,
+            "count": len(resume_data.skills_section_keywords),
+            "domain_vector": resume_data.domain_classification_vector,
+        },
+        "projects": {
+            "count": resume_data.project_count,
+            "titles": resume_data.project_titles,
+            "tech_per_project": resume_data.project_tech_keywords,
+            "arch_flags": resume_data.architectural_regex_flags,
+            "code_repos": resume_data.code_repository_urls,
+            "live_deployments": resume_data.deployment_live_urls,
+        },
+        "impact": {
+            "total_bullets": resume_data.total_bullet_points_count,
+            "metric_bullets": resume_data.metric_regex_match_count,
+            "numeric_values_extracted": resume_data.regex_extracted_numeric_values,
+        },
+        "clarity": {
+            "buzzword_frequency_map": resume_data.buzzword_frequency_map,
         },
         "experience": {
-            "has_internship": resume_data.has_internship,
-            "is_top_company_internship": resume_data.is_top_company_internship,
-            "competitive_achievements": resume_data.competitive_achievements_count,
-            "employment_gap_months": resume_data.employment_gap_months,
+            "timeline": resume_data.experience_timeline_intervals,
         },
-        "resume_quality": {
-            "has_standard_sections": resume_data.has_standard_sections,
-            "quantifiable_bullets": resume_data.quantifiable_metrics_count,
-            "action_verb_bullets": resume_data.action_verb_bullet_count,
-            "weak_phrase_count": resume_data.weak_phrase_count,
-        },
-        "ats_score": {
+        "scores": {
             "final": score_data["final_score"],
-            "formatting": score_data["formatting_score"],
-            "academics": score_data["academic_score"],
-            "skills": score_data["skills_score"],
-            "projects": score_data["project_score"],
-            "impact": score_data["impact_score"],
-            "experience": score_data["velocity_score"],
-            "bonus": score_data["bonus"],
+            "year_weights_applied": score_data["btech_year"],
+            "S_hygiene": score_data["S_hygiene"],
+            "S_realization": score_data["S_realization"],
+            "S_complexity": score_data["S_complexity"],
+            "S_impact": score_data["S_impact"],
+            "S_production": score_data["S_production"],
+            "S_clarity": score_data["S_clarity"],
+            "S_domain": score_data["S_domain"],
+            "S_velocity": score_data["S_velocity"],
         }
     }
 
@@ -284,7 +305,7 @@ elif dashboard == "🗂️ Dashboard 2: Resume Data":
     st.download_button(
         label="⬇️ Download JSON",
         data=json_str,
-        file_name=f"{resume_data.name.replace(' ', '_')}_resume.json",
+        file_name=f"{resume_data.candidate_name.replace(' ', '_')}_resume_data.json",
         mime="application/json",
         use_container_width=True,
     )
