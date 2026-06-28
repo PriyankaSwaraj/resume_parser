@@ -93,9 +93,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
 #  SIDEBAR
-# ─────────────────────────────────────────────
+
 api_key = os.environ.get("GROQ_API_KEY", "")
 
 with st.sidebar:
@@ -109,14 +108,9 @@ with st.sidebar:
         index=0,
     )
     st.divider()
-    if st.button("🗑️ Clear session", use_container_width=True):
-        for key in ["resume_data", "score_data", "raw_text", "processed_file", "overrides"]:
-            st.session_state.pop(key, None)
-        st.rerun()
 
-# ─────────────────────────────────────────────
 #  CONSTANTS (overrideable from Controls tab)
-# ─────────────────────────────────────────────
+
 DEFAULT_WEIGHTS = {
     2: {"hyg":0.25,"real":0.25,"comp":0.20,"imp":0.05,"prod":0.10,"clar":0.05,"dom":0.05,"vel":0.05},
     3: {"hyg":0.15,"real":0.20,"comp":0.25,"imp":0.10,"prod":0.15,"clar":0.05,"dom":0.05,"vel":0.05},
@@ -142,7 +136,6 @@ def get_overrides():
         "constants": dict(DEFAULT_CONSTANTS),
     })
 
-# ─────────────────────────────────────────────
 #  SCORING ENGINE (uses overrides)
 # ─────────────────────────────────────────────
 TIER3_SKILLS = {"golang","go","docker","kubernetes","redis","kafka","grpc","aws","gcp","azure",
@@ -172,7 +165,7 @@ def compute_score_custom(data, overrides):
     year = data.btech_year if data.btech_year in overrides["weights"] else 3
     W = overrides["weights"][year]
     eps = C["eps"]
-    steps = {}   # stores intermediate values for display
+    steps = {}   
 
     # ── 1. S_hygiene ──
     P = max(data.total_page_count, 1)
@@ -310,7 +303,6 @@ def compute_score_custom(data, overrides):
         **{k: round(v, 2) for k, v in scores.items()},
     }
 
-# ─────────────────────────────────────────────
 #  PDF + PIPELINE
 # ─────────────────────────────────────────────
 def extract_pdf_text(file_bytes):
@@ -329,7 +321,6 @@ def run_pipeline(file_bytes, api_key):
         score_data = compute_score_custom(resume_data, get_overrides())
     st.session_state.update({"raw_text": raw_text, "resume_data": resume_data, "score_data": score_data})
 
-# ─────────────────────────────────────────────
 #  HEADER
 # ─────────────────────────────────────────────
 st.markdown('<p class="main-header">🎓 CS Resume Scorer</p>', unsafe_allow_html=True)
@@ -380,8 +371,7 @@ COMP_KEYS = [
 
 W = score_data.get("weights", overrides["weights"].get(score_data.get("btech_year", 3), {}))
 
-# ═══════════════════════════════════════════════
-#  TAB: 📊 SCORE
+#  TAB: 
 # ═══════════════════════════════════════════════
 if dashboard == "📊 Score":
     final_score = score_data.get("final_score", 0)
@@ -504,9 +494,7 @@ if dashboard == "📊 Score":
             for d in set(resume_data.domain_classification_vector)
         ), unsafe_allow_html=True)
 
-
-# ═══════════════════════════════════════════════
-#  TAB: 🔬 FORMULA STEPS
+#  TAB:  FORMULA STEPS
 # ═══════════════════════════════════════════════
 elif dashboard == "🔬 Formula Steps":
     st.markdown("### 🔬 Step-by-Step Formula Evaluation")
@@ -617,9 +605,7 @@ elif dashboard == "🔬 Formula Steps":
         f"\n{'─'*50}\n  {'FINAL':28s}              = {score_data.get('final_score','?')}"
         + '</div>', unsafe_allow_html=True)
 
-
-# ═══════════════════════════════════════════════
-#  TAB: 🎛️ CONTROLS
+#  TAB: CONTROLS
 # ═══════════════════════════════════════════════
 elif dashboard == "🎛️ Controls":
     st.markdown("### 🎛️ Weight & Constant Controls")
@@ -732,9 +718,7 @@ elif dashboard == "🎛️ Controls":
             marker = f" ({'↑' if diff>0 else '↓'}{abs(diff):.2f})" if abs(diff) > 0.001 else ""
             st.markdown(f"- {ck}: **{cv}**{marker}")
 
-
-# ═══════════════════════════════════════════════
-#  TAB: 🗂️ RAW DATA
+#  TAB: RAW DATA
 # ═══════════════════════════════════════════════
 elif dashboard == "🗂️ Raw Data":
     st.markdown("### 🗂️ LLM-Extracted Resume Data")
