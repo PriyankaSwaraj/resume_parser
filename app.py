@@ -5,7 +5,7 @@ import streamlit as st
 from pypdf import PdfReader
 import io
 
-from utils import extract_resume_data, compute_score
+from utils import extract_resume_data, compute_score 
 
 st.set_page_config(
     page_title="CS Resume Scorer",
