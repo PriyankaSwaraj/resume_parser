@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 class ResumeData(BaseModel):
     # ── S_hygiene ──
     total_page_count: int = Field(default=1)
-    extracted_links_array: list[str] = Field(default_factory=list)   
+    extracted_links_array: list[str] = Field(default_factory=list)  
     raw_email_string: str = Field(default="")
     detected_section_headers: list[str] = Field(default_factory=list)
 
@@ -18,7 +18,7 @@ class ResumeData(BaseModel):
 
     # ── S_complexity ──
     project_titles: list[str] = Field(default_factory=list)
-    project_tech_keywords: list[list[str]] = Field(default_factory=list) 
+    project_tech_keywords: list[list[str]] = Field(default_factory=list)  
     architectural_regex_flags: list[bool] = Field(default_factory=list)  
 
     # ── S_impact ──
@@ -273,7 +273,6 @@ def compute_score(data: ResumeData) -> dict:
         "S_clarity": round(S_clarity, 2),
         "S_domain": round(S_domain, 2),
         "S_velocity": round(S_velocity, 2),
-    
         "L_missing": L_missing,
         "E_generic": E_generic,
         "X_missing": X_missing,
