@@ -1,13 +1,13 @@
 import json
 import math
-from groq import Groq
+from openai import OpenAI
 from pydantic import BaseModel, Field
 
 
 class ResumeData(BaseModel):
     # ── S_hygiene ──
     total_page_count: int = Field(default=1)
-    extracted_links_array: list[str] = Field(default_factory=list)   # all href/urls found
+    extracted_links_array: list[str] = Field(default_factory=list)   
     raw_email_string: str = Field(default="")
     detected_section_headers: list[str] = Field(default_factory=list)
 
@@ -18,13 +18,13 @@ class ResumeData(BaseModel):
 
     # ── S_complexity ──
     project_titles: list[str] = Field(default_factory=list)
-    project_tech_keywords: list[list[str]] = Field(default_factory=list)  # per-project
-    architectural_regex_flags: list[bool] = Field(default_factory=list)   # per-project
+    project_tech_keywords: list[list[str]] = Field(default_factory=list) 
+    architectural_regex_flags: list[bool] = Field(default_factory=list)  
 
     # ── S_impact ──
     total_bullet_points_count: int = Field(default=0)
     metric_regex_match_count: int = Field(default=0)
-    regex_extracted_numeric_values: list[int] = Field(default_factory=list)  # V_b values
+    regex_extracted_numeric_values: list[int] = Field(default_factory=list)  
 
     # ── S_production ──
     project_count: int = Field(default=0)
@@ -109,9 +109,9 @@ btech_year (int): 2, 3, or 4. Infer from graduation year or year of study mentio
 #  LLM EXTRACTION
 
 def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
-    client = Groq(api_key=api_key)
+    client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="gpt-4o",
         max_tokens=2000,
         temperature=0.0,
         response_format={"type": "json_object"},
@@ -273,7 +273,7 @@ def compute_score(data: ResumeData) -> dict:
         "S_clarity": round(S_clarity, 2),
         "S_domain": round(S_domain, 2),
         "S_velocity": round(S_velocity, 2),
-        # debug helpers
+    
         "L_missing": L_missing,
         "E_generic": E_generic,
         "X_missing": X_missing,
