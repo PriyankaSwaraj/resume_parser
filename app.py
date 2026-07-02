@@ -4,6 +4,7 @@ import os
 import streamlit as st
 from pypdf import PdfReader
 import io
+import openai
 
 from utils import extract_resume_data, compute_score 
 
@@ -109,7 +110,7 @@ with st.sidebar:
     )
     st.divider()
 
-#  CONSTANTS (overrideable from Controls tab)
+#  CONSTANTS
 
 DEFAULT_WEIGHTS = {
     2: {"hyg":0.25,"real":0.25,"comp":0.20,"imp":0.05,"prod":0.10,"clar":0.05,"dom":0.05,"vel":0.05},
@@ -315,8 +316,44 @@ def run_pipeline(file_bytes, api_key):
     if not raw_text:
         st.error("Could not read PDF — make sure it's not a scanned image.")
         return
-    with st.spinner("LLM extracting resume fields..."):
-        resume_data = extract_resume_data(raw_text, api_key)
+    try:
+        with st.spinner("LLM extracting resume fields..."):
+            resume_data = extract_resume_data(raw_text, api_key)
+    except openai.AuthenticationError:
+        st.error(
+            "🔑 OpenAI rejected the API key. Double-check that `OPENAI_API_KEY` in your "
+            "app's Secrets is a valid, unrevoked key from platform.openai.com — and that "
+            "it's set as a top-level key (not nested under a section)."
+        )
+        st.session_state["processed_file"] = None
+        st.stop()
+    except openai.PermissionDeniedError:
+        st.error(
+            "🚫 This API key doesn't have access to the requested model. Check your "
+            "OpenAI account/project has `gpt-4o` access and an active billing method."
+        )
+        st.session_state["processed_file"] = None
+        st.stop()
+    except openai.RateLimitError:
+        st.error(
+            "⏳ Rate limit or quota exceeded on this OpenAI key. Check usage limits or "
+            "billing at platform.openai.com, then try again."
+        )
+        st.session_state["processed_file"] = None
+        st.stop()
+    except openai.APIConnectionError:
+        st.error("🌐 Couldn't reach OpenAI's API. Check your network/firewall and try again.")
+        st.session_state["processed_file"] = None
+        st.stop()
+    except openai.APIError as e:
+        st.error(f"⚠️ OpenAI API error: {e}")
+        st.session_state["processed_file"] = None
+        st.stop()
+    except (json.JSONDecodeError, ValueError) as e:
+        st.error(f"⚠️ Could not parse the LLM's response into resume data: {e}")
+        st.session_state["processed_file"] = None
+        st.stop()
+
     with st.spinner("Computing scores..."):
         score_data = compute_score_custom(resume_data, get_overrides())
     st.session_state.update({"raw_text": raw_text, "resume_data": resume_data, "score_data": score_data})
