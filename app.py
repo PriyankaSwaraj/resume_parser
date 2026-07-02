@@ -95,7 +95,7 @@ st.markdown("""
 
 #  SIDEBAR
 
-api_key = os.environ.get("GROQ_API_KEY", "")
+api_key = os.environ.get("OPENAI_API_KEY", "")
 
 with st.sidebar:
     st.markdown("## 🎓 CS Resume Scorer")
@@ -331,7 +331,7 @@ if uploaded_file is not None:
     file_id = hash(file_bytes)
     if st.session_state.get("processed_file") != file_id:
         if not api_key:
-            st.error("⚠️ Set GROQ_API_KEY environment variable first.")
+            st.error("⚠️ Set OPENAI_API_KEY environment variable first.")
             st.stop()
         st.session_state["processed_file"] = file_id
         run_pipeline(file_bytes, api_key)
