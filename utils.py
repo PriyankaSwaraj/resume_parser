@@ -1,13 +1,16 @@
 import json
 import math
-from openai import OpenAI
+from groq import Groq
 from pydantic import BaseModel, Field
 
+# ─────────────────────────────────────────────────────────────
+#  DATA MODEL  — every field the LLM must extract
+# ─────────────────────────────────────────────────────────────
 
 class ResumeData(BaseModel):
     # ── S_hygiene ──
     total_page_count: int = Field(default=1)
-    extracted_links_array: list[str] = Field(default_factory=list)  
+    extracted_links_array: list[str] = Field(default_factory=list)   # all href/urls found
     raw_email_string: str = Field(default="")
     detected_section_headers: list[str] = Field(default_factory=list)
 
@@ -18,13 +21,13 @@ class ResumeData(BaseModel):
 
     # ── S_complexity ──
     project_titles: list[str] = Field(default_factory=list)
-    project_tech_keywords: list[list[str]] = Field(default_factory=list)  
-    architectural_regex_flags: list[bool] = Field(default_factory=list)  
+    project_tech_keywords: list[list[str]] = Field(default_factory=list)  # per-project
+    architectural_regex_flags: list[bool] = Field(default_factory=list)   # per-project
 
     # ── S_impact ──
     total_bullet_points_count: int = Field(default=0)
     metric_regex_match_count: int = Field(default=0)
-    regex_extracted_numeric_values: list[int] = Field(default_factory=list)  
+    regex_extracted_numeric_values: list[int] = Field(default_factory=list)  # V_b values
 
     # ── S_production ──
     project_count: int = Field(default=0)
@@ -45,7 +48,9 @@ class ResumeData(BaseModel):
     btech_year: int = Field(default=3)   # 2, 3, or 4
 
 
+# ─────────────────────────────────────────────────────────────
 #  SYSTEM PROMPT
+# ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a precise resume data extractor for B.Tech student resumes.
 Return ONLY a valid JSON object — no markdown, no explanation, no extra keys.
@@ -106,12 +111,15 @@ candidate_name (string): Full name of the candidate.
 btech_year (int): 2, 3, or 4. Infer from graduation year or year of study mentioned. Default 3.
 """
 
+
+# ─────────────────────────────────────────────────────────────
 #  LLM EXTRACTION
+# ─────────────────────────────────────────────────────────────
 
 def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
-    client = OpenAI(api_key=api_key)
+    client = Groq(api_key=api_key)
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model="llama-3.3-70b-versatile",
         max_tokens=2000,
         temperature=0.0,
         response_format={"type": "json_object"},
@@ -125,12 +133,17 @@ def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
     return ResumeData(**parsed)
 
 
+# ─────────────────────────────────────────────────────────────
+#  SCORING ENGINE  — pure math, no LLM
+# ─────────────────────────────────────────────────────────────
+
 NOISE_WORDS = {
     "passionate", "detail-oriented", "synergy", "motivated", "hardworking",
     "team player", "go-getter", "self-starter", "results-driven", "dynamic",
     "innovative", "proactive"
 }
 
+# Skill difficulty tiers for S_realization (updated formula)
 TIER3_SKILLS = {"golang","go","docker","kubernetes","redis","kafka","grpc","aws","gcp","azure",
                 "tensorflow","pytorch","spark","hadoop","elasticsearch","rabbitmq","celery",
                 "websockets","microservices","ci/cd","jenkins","terraform"}
@@ -144,6 +157,7 @@ ARCH_KEYWORDS = {"websockets","kafka","docker","kubernetes","redis","ci/cd","grp
 
 ROLE_WEIGHTS = {"internship": 15, "freelance": 10, "tech_lead": 10, "member": 3}
 
+# Dynamic weights per B.Tech year
 WEIGHTS = {
     2: {"hyg": 0.25, "real": 0.25, "comp": 0.20, "imp": 0.05, "prod": 0.10, "clar": 0.05, "dom": 0.05, "vel": 0.05},
     3: {"hyg": 0.15, "real": 0.20, "comp": 0.25, "imp": 0.10, "prod": 0.15, "clar": 0.05, "dom": 0.05, "vel": 0.05},
@@ -155,23 +169,23 @@ def _skill_difficulty(skill: str) -> int:
     s = skill.lower().strip()
     if s in TIER3_SKILLS: return 10
     if s in TIER2_SKILLS: return 5
-    return 2  
+    return 2  # Tier 1 default
 
 
 def _project_tier(tech_keywords: list[str], arch_flag: bool) -> int:
     """Classify a project into Tier 1/2/3 complexity score."""
     if arch_flag:
-        return 100 
+        return 100  # Tier 3
     kw = {k.lower() for k in tech_keywords}
-    
+    # Check for tier-3 signals in project tech
     if kw & TIER3_SKILLS:
         return 100
-    
+    # Tier 2: has backend + database
     has_backend = bool(kw & {"nodejs","node.js","express","django","flask","fastapi","spring","java","python","golang"})
     has_db = bool(kw & {"mongodb","postgresql","mysql","sql","redis","firebase","supabase"})
     if has_backend and has_db:
         return 65
-    return 25 
+    return 25  # Tier 1
 
 
 def compute_score(data: ResumeData) -> dict:
@@ -191,7 +205,7 @@ def compute_score(data: ResumeData) -> dict:
     X_missing = len(mandatory - found)
     S_hygiene = max(0, 100 - 50 * max(0, P - 1) - 15 * L_missing - 25 * E_generic - 20 * X_missing)
 
-    # ── 2. S_realization 
+    # ── 2. S_realization (updated: complexity-weighted) ──
     declared = set(k.lower().strip() for k in data.skills_section_keywords)
     corpus = (data.project_descriptions_text_corpus + " " + data.experience_descriptions_text_corpus).lower()
     applied = {k for k in declared if k in corpus}
@@ -201,7 +215,7 @@ def compute_score(data: ResumeData) -> dict:
     sum_declared = sum(math.log(_skill_difficulty(k) + 1) for k in declared) + eps
     S_realization = (sum_intersect / sum_declared) * 100
 
-    # ── 3. S_complexity 
+    # ── 3. S_complexity (updated: max + log volume bonus) ──
     alpha = 5.0
     if data.project_titles:
         tiers = []
@@ -215,7 +229,7 @@ def compute_score(data: ResumeData) -> dict:
     else:
         S_complexity = 0.0
 
-    # ── 4. S_impact 
+    # ── 4. S_impact (updated: log-dampened saturation) ──
     beta = 12.0
     values = data.regex_extracted_numeric_values or []
     S_impact = min(100, beta * sum(math.log10(v + 1) for v in values if v > 0))
@@ -273,6 +287,7 @@ def compute_score(data: ResumeData) -> dict:
         "S_clarity": round(S_clarity, 2),
         "S_domain": round(S_domain, 2),
         "S_velocity": round(S_velocity, 2),
+        # debug helpers
         "L_missing": L_missing,
         "E_generic": E_generic,
         "X_missing": X_missing,
