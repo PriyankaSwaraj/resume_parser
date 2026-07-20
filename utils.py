@@ -134,7 +134,7 @@ def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
 
 
 # ─────────────────────────────────────────────────────────────
-#  SCORING ENGINE  — pure math, no LLM
+#  SCORING ENGINE  
 # ─────────────────────────────────────────────────────────────
 
 NOISE_WORDS = {
@@ -143,7 +143,7 @@ NOISE_WORDS = {
     "innovative", "proactive"
 }
 
-# Skill difficulty tiers for S_realization (updated formula)
+# Skill difficulty tiers for S_realization 
 TIER3_SKILLS = {"golang","go","docker","kubernetes","redis","kafka","grpc","aws","gcp","azure",
                 "tensorflow","pytorch","spark","hadoop","elasticsearch","rabbitmq","celery",
                 "websockets","microservices","ci/cd","jenkins","terraform"}
