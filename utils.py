@@ -4,7 +4,7 @@ from groq import Groq
 from pydantic import BaseModel, Field
 
 # ─────────────────────────────────────────────────────────────
-#  DATA MODEL  — every field the LLM must extract
+#  DATA MODEL 
 # ─────────────────────────────────────────────────────────────
 
 class ResumeData(BaseModel):
@@ -134,7 +134,7 @@ def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
 
 
 # ─────────────────────────────────────────────────────────────
-#  SCORING ENGINE  
+#  SCORING ENGINE 
 # ─────────────────────────────────────────────────────────────
 
 NOISE_WORDS = {
@@ -205,7 +205,7 @@ def compute_score(data: ResumeData) -> dict:
     X_missing = len(mandatory - found)
     S_hygiene = max(0, 100 - 50 * max(0, P - 1) - 15 * L_missing - 25 * E_generic - 20 * X_missing)
 
-    # ── 2. S_realization (updated: complexity-weighted) ──
+    # ── 2. S_realization ──
     declared = set(k.lower().strip() for k in data.skills_section_keywords)
     corpus = (data.project_descriptions_text_corpus + " " + data.experience_descriptions_text_corpus).lower()
     applied = {k for k in declared if k in corpus}
@@ -215,7 +215,7 @@ def compute_score(data: ResumeData) -> dict:
     sum_declared = sum(math.log(_skill_difficulty(k) + 1) for k in declared) + eps
     S_realization = (sum_intersect / sum_declared) * 100
 
-    # ── 3. S_complexity (updated: max + log volume bonus) ──
+    # ── 3. S_complexity ──
     alpha = 5.0
     if data.project_titles:
         tiers = []
