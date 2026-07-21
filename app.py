@@ -115,7 +115,7 @@ with st.sidebar:
         st.rerun()
 
 # ─────────────────────────────────────────────
-#  CONSTANTS (overrideable from Controls tab)
+#  CONSTANTS
 # ─────────────────────────────────────────────
 DEFAULT_WEIGHTS = {
     2: {"hyg":0.25,"real":0.25,"comp":0.20,"imp":0.05,"prod":0.10,"clar":0.05,"dom":0.05,"vel":0.05},
@@ -143,7 +143,7 @@ def get_overrides():
     })
 
 # ─────────────────────────────────────────────
-#  SCORING ENGINE (uses overrides)
+#  SCORING ENGINE 
 # ─────────────────────────────────────────────
 TIER3_SKILLS = {"golang","go","docker","kubernetes","redis","kafka","grpc","aws","gcp","azure",
                 "tensorflow","pytorch","spark","hadoop","elasticsearch","rabbitmq","celery",
