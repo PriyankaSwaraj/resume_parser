@@ -115,7 +115,7 @@ with st.sidebar:
         st.rerun()
 
 # ─────────────────────────────────────────────
-#  CONSTANTS 
+#  CONSTANTS (overrideable from Controls tab)
 # ─────────────────────────────────────────────
 DEFAULT_WEIGHTS = {
     2: {"hyg":0.25,"real":0.25,"comp":0.20,"imp":0.05,"prod":0.10,"clar":0.05,"dom":0.05,"vel":0.05},
