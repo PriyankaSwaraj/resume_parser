@@ -46,7 +46,8 @@ class ResumeData(BaseModel):
 
     # ── meta ──
     candidate_name: str = Field(default="Unknown")
-    graduation_year: int = Field(default=0)  
+    graduation_year: int = Field(default=0)
+    btech_year: int = Field(default=3)
 
 
 # ─────────────────────────────────────────────────────────────
