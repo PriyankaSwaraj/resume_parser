@@ -115,7 +115,7 @@ with st.sidebar:
         st.rerun()
 
 # ─────────────────────────────────────────────
-#  CONSTANTS
+#  CONSTANTS 
 # ─────────────────────────────────────────────
 DEFAULT_WEIGHTS = {
     2: {"hyg":0.25,"real":0.25,"comp":0.20,"imp":0.05,"prod":0.10,"clar":0.05,"dom":0.05,"vel":0.05},
@@ -143,7 +143,7 @@ def get_overrides():
     })
 
 # ─────────────────────────────────────────────
-#  SCORING ENGINE 
+#  SCORING ENGINE (uses overrides)
 # ─────────────────────────────────────────────
 TIER3_SKILLS = {"golang","go","docker","kubernetes","redis","kafka","grpc","aws","gcp","azure",
                 "tensorflow","pytorch","spark","hadoop","elasticsearch","rabbitmq","celery",
@@ -406,7 +406,9 @@ if dashboard == "📊 Score":
     with col_info:
         st.markdown("#### 👤 Candidate")
         st.metric("Name", resume_data.candidate_name)
-        st.metric("B.Tech Year", f"Year {btech_year}")
+        grad_yr = resume_data.graduation_year if resume_data.graduation_year else "Not found"
+        st.metric("Graduation Year", grad_yr)
+        st.metric("B.Tech Year", f"Year {btech_year} (calculated)")
         st.metric("Projects", resume_data.project_count)
         st.metric("Skills Listed", len(resume_data.skills_section_keywords))
 
@@ -741,7 +743,11 @@ elif dashboard == "🗂️ Raw Data":
     st.caption("Raw JSON output from the extraction step — fed directly into the math engine.")
 
     out = {
-        "candidate": {"name": resume_data.candidate_name, "btech_year": resume_data.btech_year},
+        "candidate": {
+            "name": resume_data.candidate_name,
+            "graduation_year": resume_data.graduation_year,
+            "btech_year_calculated": score_data.get("btech_year", 3),
+        },
         "hygiene": {
             "total_page_count": resume_data.total_page_count,
             "extracted_links": resume_data.extracted_links_array,
@@ -770,7 +776,8 @@ elif dashboard == "🗂️ Raw Data":
         "experience": {"timeline": resume_data.experience_timeline_intervals},
         "scores": {
             "final": score_data.get("final_score", 0),
-            "year_weights": score_data.get("btech_year", 3),
+            "graduation_year": score_data.get("graduation_year", 0),
+            "btech_year_calculated": score_data.get("btech_year", 3),
             **{k: score_data.get(k, 0) for k in
                ["S_hygiene","S_realization","S_complexity","S_impact",
                 "S_production","S_clarity","S_domain","S_velocity"]},
