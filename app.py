@@ -406,9 +406,8 @@ if dashboard == "📊 Score":
     with col_info:
         st.markdown("#### 👤 Candidate")
         st.metric("Name", resume_data.candidate_name)
-        grad_yr = resume_data.graduation_year if resume_data.graduation_year else "Not found"
         st.metric("Graduation Year", grad_yr)
-        st.metric("B.Tech Year", f"Year {btech_year} (calculated)")
+        st.metric("B.Tech Year", f"Year {btech_year}")
         st.metric("Projects", resume_data.project_count)
         st.metric("Skills Listed", len(resume_data.skills_section_keywords))
 
