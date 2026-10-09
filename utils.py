@@ -157,7 +157,7 @@ experience_timeline_intervals (array of objects): Each internship/job/role as:
 def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
     client = Groq(api_key=api_key)
     response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model="llama-3.3-70b-versatile",
         max_tokens=2000,
         temperature=0.0,   # deterministic
         response_format={"type": "json_object"},
