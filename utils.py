@@ -1,8 +1,22 @@
 import json
 import math
+import re
 from datetime import datetime
+
+import groq
 from groq import Groq
 from pydantic import BaseModel, Field
+
+# ─────────────────────────────────────────────────────────────
+#  CONFIG
+# ─────────────────────────────────────────────────────────────
+
+# llama-3.1-8b-instant was shut down on Aug 16, 2026. Change the model here only.
+MODEL = "openai/gpt-oss-20b"
+MAX_TOKENS_FIRST = 8000     # reasoning tokens count toward this limit
+MAX_TOKENS_RETRY = 16000
+MAX_RESUME_CHARS = 12000
+
 
 # ─────────────────────────────────────────────────────────────
 #  DATA MODEL
@@ -51,30 +65,35 @@ class ResumeData(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────
-#  YEAR CALCULATION 
+#  YEAR CALCULATION
 # ─────────────────────────────────────────────────────────────
 
 def calculate_btech_year(graduation_year: int) -> int:
     """
-    Calculate B.Tech year from graduation year.
-    B.Tech is a 4-year program.
-    graduation_year - current_year tells us how many years are left.
+    Calculate B.Tech year from graduation year (4-year program).
+
+    The academic year starts around July/August, so from July onwards the
+    current academic year ends next calendar year. Example (Oct 2026):
+    graduation 2027 -> 4th year, 2028 -> 3rd, 2029 -> 2nd, 2030 -> 1st.
     """
     if not graduation_year or graduation_year < 2000:
         return 3  # safe default
 
-    current_year = datetime.now().year
-    years_left = graduation_year - current_year
+    now = datetime.now()
+    academic_year_end = now.year + 1 if now.month >= 7 else now.year
+    years_left = graduation_year - academic_year_end
 
-    if years_left >= 3:  return 1   # 1st year
-    if years_left == 2:  return 2   # 2nd year
-    if years_left == 1:  return 3   # 3rd year
-    if years_left <= 0:  return 4   # 4th year / graduated
-    return 3  # fallback
+    if years_left >= 3:
+        return 1
+    if years_left == 2:
+        return 2
+    if years_left == 1:
+        return 3
+    return 4  # final year or already graduated
 
 
 # ─────────────────────────────────────────────────────────────
-#  SYSTEM PROMPT 
+#  SYSTEM PROMPT
 # ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a deterministic resume data extractor for B.Tech student resumes.
@@ -154,33 +173,91 @@ experience_timeline_intervals (array of objects): Each internship/job/role as:
 #  LLM EXTRACTION
 # ─────────────────────────────────────────────────────────────
 
-def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
-    client = Groq(api_key=api_key)
-    response = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
-        max_tokens=2000,
-        temperature=0.0,   # deterministic
+def _call_llm(client: Groq, resume_text: str, max_tokens: int):
+    return client.chat.completions.create(
+        model=MODEL,
+        max_completion_tokens=max_tokens,        # replaces max_tokens; includes reasoning
+        temperature=0.0,
         response_format={"type": "json_object"},
+        extra_body={"reasoning_effort": "low"},  # faster, leaves room for the JSON
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Extract data from this resume:\n\n{resume_text[:7000]}"}
-        ]
+            {
+                "role": "user",
+                "content": f"Extract data from this resume and return JSON only:\n\n{resume_text[:MAX_RESUME_CHARS]}",
+            },
+        ],
     )
-    raw = response.choices[0].message.content
-    parsed = json.loads(raw)
 
-    parsed.pop("btech_year", None)
 
-    data = ResumeData(**parsed)
+def _parse_json(raw: str) -> dict:
+    """Parse model output, tolerating code fences or stray text around the JSON."""
+    raw = (raw or "").strip()
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.IGNORECASE)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        start, end = raw.find("{"), raw.rfind("}")
+        if start != -1 and end > start:
+            return json.loads(raw[start:end + 1])
+        raise
 
-    
+
+def _to_int(v) -> int | None:
+    try:
+        return int(float(str(v).replace(",", "")))
+    except (TypeError, ValueError):
+        return None
+
+
+def _sanitize(parsed: dict) -> dict:
+    """Drop unknown keys / nulls and coerce types so pydantic never rejects the output."""
+    clean = {
+        k: v for k, v in parsed.items()
+        if k in ResumeData.model_fields and k != "btech_year" and v is not None
+    }
+
+    clean["regex_extracted_numeric_values"] = [
+        n for n in (_to_int(v) for v in clean.get("regex_extracted_numeric_values", []))
+        if n is not None
+    ]
+    for key in ("total_page_count", "total_bullet_points_count", "metric_regex_match_count",
+                "project_count", "graduation_year"):
+        if key in clean:
+            clean[key] = _to_int(clean[key]) or 0
+    if "buzzword_frequency_map" in clean and isinstance(clean["buzzword_frequency_map"], dict):
+        clean["buzzword_frequency_map"] = {
+            str(k): n for k, v in clean["buzzword_frequency_map"].items()
+            if (n := _to_int(v)) is not None
+        }
+    if "experience_timeline_intervals" in clean:
+        clean["experience_timeline_intervals"] = [
+            e for e in clean["experience_timeline_intervals"] if isinstance(e, dict)
+        ]
+
+    # project_count must match the titles list
+    clean["project_count"] = len(clean.get("project_titles", [])) or clean.get("project_count", 0)
+    return clean
+
+
+def extract_resume_data(resume_text: str, api_key: str) -> ResumeData:
+    client = Groq(api_key=api_key)
+
+    try:
+        response = _call_llm(client, resume_text, MAX_TOKENS_FIRST)
+        parsed = _parse_json(response.choices[0].message.content)
+    except (groq.BadRequestError, json.JSONDecodeError):
+        # Usually "json_validate_failed" from a truncated answer: retry with more headroom.
+        response = _call_llm(client, resume_text, MAX_TOKENS_RETRY)
+        parsed = _parse_json(response.choices[0].message.content)
+
+    data = ResumeData(**_sanitize(parsed))
     data.btech_year = calculate_btech_year(data.graduation_year)
-
     return data
 
 
 # ─────────────────────────────────────────────────────────────
-#  SCORING ENGINE  
+#  SCORING ENGINE (unchanged)
 # ─────────────────────────────────────────────────────────────
 
 TIER3_SKILLS = {"golang","go","docker","kubernetes","redis","kafka","grpc","aws","gcp","azure",
